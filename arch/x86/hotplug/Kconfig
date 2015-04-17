@@ -3,3 +3,9 @@ config ALUCARD_HOTPLUG
 	default y
 	help
 	  Alucard-hotplug cpu hotplug driver
+
+config MAKO_HOTPLUG
+	bool "Enable mako-hotplug cpu hotplug driver"
+	default y
+	help
+	  mako-hotplug cpu hotplug driver

@@ -13,3 +13,4 @@ CFLAGS_REMOVE_early_printk.o = -pg
 endif
 
 obj-$(CONFIG_ALUCARD_HOTPLUG) 		+= alucard_hotplug.o
+obj-$(CONFIG_MAKO_HOTPLUG) += mako_hotplug.o
