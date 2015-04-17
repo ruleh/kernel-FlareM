@@ -18,3 +18,9 @@ config INTELLI_PLUG
 	   default y
 	   help
 		 This enables kernel based multi core control.
+
+config MAKO_HOTPLUG
+	bool "Enable mako-hotplug cpu hotplug driver"
+	default y
+	help
+	  mako-hotplug cpu hotplug driver
