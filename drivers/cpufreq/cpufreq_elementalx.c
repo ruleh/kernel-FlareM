@@ -20,6 +20,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/mutex.h>
 #include <linux/hrtimer.h>
+#include <linux/sched/rt.h>
 #include <linux/tick.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
@@ -28,7 +29,6 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 
-#include <mach/kgsl.h>
 static int orig_up_threshold = 90;
 static int g_count = 0;
 
@@ -931,15 +931,15 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 	if (dbs_tuners_ins.gboost) {
 
-		if (g_count < 100 && graphics_boost < 5) {
+		if (g_count < 100 ) {
 			++g_count;
 		} else if (g_count > 1) {
 			--g_count;
 			--g_count;
 		}
 
-		if (graphics_boost < 4 && g_count > 80) {
-			dbs_tuners_ins.up_threshold = 60 + (graphics_boost * 10);
+		if (g_count > 80) {
+			dbs_tuners_ins.up_threshold = 90;
 		} else {
 			dbs_tuners_ins.up_threshold = orig_up_threshold;
 		}
@@ -1057,7 +1057,7 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 		delay -= jiffies % delay;
 
 	dbs_info->sample_type = DBS_NORMAL_SAMPLE;
-	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
+	INIT_DEFERRABLE_WORK(&dbs_info->work, do_dbs_timer);
 	schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, delay);
 }
 
