@@ -117,6 +117,8 @@ int cover_mode = 0;
 //<ASUS_COVER->
 bool keypad_enable = true;
 
+bool key_hardware_1080 = true;
+
 int HidI2c_To_StdI2c(struct i2c_client * client)
 {
 	u8 auc_i2c_write_buf[10] = {0};
@@ -1400,6 +1402,42 @@ static ssize_t ftxxxx_keypad_enable_store(struct device *dev,
 	return count;
 }
 
+static ssize_t ftxxxx_key_hardware_1080_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", key_hardware_1080);
+}
+
+static ssize_t ftxxxx_key_hardware_1080_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	struct ftxxxx_ts_data *data = NULL;
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+	data = (struct ftxxxx_ts_data *) i2c_get_clientdata( client );
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	key_hardware_1080 = (input != 0);
+
+	if (key_hardware_1080) {
+		set_bit(KEY_BACK, data->input_dev->keybit);
+		set_bit(KEY_HOME, data->input_dev->keybit);
+		set_bit(KEY_MENU, data->input_dev->keybit);
+	} else {
+		clear_bit(KEY_BACK, data->input_dev->keybit);
+		clear_bit(KEY_HOME, data->input_dev->keybit);
+		clear_bit(KEY_MENU, data->input_dev->keybit);
+	}
+
+	printk("[ftxxxx] dclick mode: %d\n", key_hardware_1080);
+
+	return count;
+}
+
 static ssize_t ftxxxx_enable_touch_show(struct device *dev,
 struct device_attribute *attr, char *buf)
 {
@@ -2089,6 +2127,7 @@ static DEVICE_ATTR(ftsgesturemode, S_IRUGO|S_IWUSR, ftxxxx_gesture_mode_show, ft
 static DEVICE_ATTR(ftscovermode, S_IRUGO|S_IWUSR, ftxxxx_cover_mode_show, ftxxxx_cover_mode_store);
 //#endif
 //<ASUS_COVER->
+static DEVICE_ATTR(ftskeyhardware1080, S_IRUGO|S_IWUSR|S_IWGRP, ftxxxx_key_hardware_1080_show, ftxxxx_key_hardware_1080_store);
 static DEVICE_ATTR(ftskeypadenable, S_IRUGO|S_IWUSR|S_IWGRP, ftxxxx_keypad_enable_show, ftxxxx_keypad_enable_store);
 static DEVICE_ATTR(ftsenabletouch, S_IRUGO|S_IWUSR, ftxxxx_enable_touch_show, ftxxxx_enable_touch_store);
 static DEVICE_ATTR(ftsdisabletouch, S_IRUGO|S_IWUSR, ftxxxx_disable_touch_show, ftxxxx_disable_touch_store);
@@ -2122,6 +2161,7 @@ static struct attribute *ftxxxx_attributes[] = {
 	&dev_attr_ftscovermode.attr,
 //#endif
 //<ASUS_COVER->
+	&dev_attr_ftskeyhardware1080.attr,
 	&dev_attr_ftskeypadenable.attr,
 	&dev_attr_ftsenabletouch.attr,
 	&dev_attr_ftsdisabletouch.attr,
