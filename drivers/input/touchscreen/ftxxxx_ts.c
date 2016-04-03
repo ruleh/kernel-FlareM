@@ -113,6 +113,7 @@ extern int gesture_mode;
 extern int glove_mode;
 extern int cover_mode;
 extern bool keypad_enable;
+extern bool key_hardware_1080;
 static int virtual_keys_abs_y = 0;
 int sleep_mode = 0;
 
@@ -901,7 +902,7 @@ static ssize_t virtual_keys_show(struct kobject *kobj,
 {
 	if (Read_HW_ID() == HW_ID_MP)
 	{
-		if (Read_PROJ_ID() == PROJ_ID_ZE550ML)
+		if ((Read_PROJ_ID() == PROJ_ID_ZE550ML) || (!key_hardware_1080))
 		{
 			/* note: the reported format is <keycode>:<center-x>:<center-y>:<width>:<height> */
 			virtual_keys_abs_y = 1341 - 100/2;
@@ -911,7 +912,7 @@ static ssize_t virtual_keys_show(struct kobject *kobj,
 				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":580:1341:180:100"  
 				"\n");
 		}
-		else if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+		else if ((Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD) && key_hardware_1080)
 		{
 			virtual_keys_abs_y = 2061 - 250/2;
 			return sprintf(buf,  
@@ -932,7 +933,7 @@ static ssize_t virtual_keys_show(struct kobject *kobj,
 	}
 	else
 	{
-		if (Read_PROJ_ID() == PROJ_ID_ZE550ML)
+		if ((Read_PROJ_ID() == PROJ_ID_ZE550ML) || (!key_hardware_1080))
 		{
 			virtual_keys_abs_y = 1330 - 100/2;
 			return sprintf(buf,  
@@ -941,7 +942,7 @@ static ssize_t virtual_keys_show(struct kobject *kobj,
 				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":590:1330:160:100"  
 				"\n");
 		}
-		else if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+		else if ((Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD) && key_hardware_1080)
 		{
 			virtual_keys_abs_y = 2045 - 250/2;
 			return sprintf(buf,  
@@ -965,7 +966,7 @@ static ssize_t virtual_keys_show(struct kobject *kobj,
 static struct kobj_attribute virtual_keys_attr = {  
 	.attr = {  
 		.name = "virtualkeys.ftxxxx_ts",  
-		.mode = S_IRUGO,  
+		.mode = (S_IRUGO|S_IWUGO),  
 	},  
 	.show = &virtual_keys_show,  
 };  
