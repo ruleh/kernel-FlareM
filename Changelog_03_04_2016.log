@@ -1,0 +1,31 @@
+Project name: FlareM Kernel
+ [31mf8cbcd4[m -[33m (HEAD, origin/cm-13.0, origin/HEAD, cm-13.0)[m REGEN : defconfig [32m(2 hours ago) [1;34m<sayeed99>[m
+ [31me6302b5[m -[33m[m MM : fix things using linux 3.10.101 branch [32m(3 hours ago) [1;34m<sayeed99>[m
+ [31m3cfd084[m -[33m[m Do not build ElementalX ATM need to fix it [32m(22 hours ago) [1;34m<sayeed99>[m
+ [31m1e9ab0b[m -[33m[m REGEN : DEFCONFIG [32m(22 hours ago) [1;34m<sayeed99>[m
+ [31ma74fabd[m -[33m[m Revert "RGX-KM: Correcting typo on rgx for max memory pool size pages" [32m(31 hours ago) [1;34m<eoghan2t9>[m
+ [31m860aa0e[m -[33m[m RGX-KM: Correcting typo on rgx for max memory pool size pages [32m(31 hours ago) [1;34m<eoghan2t9>[m
+ [31m4059435[m -[33m[m Fugu clean-up: Add unused attribute to powervr_driver [32m(32 hours ago) [1;34m<Ilkka Koskinen>[m
+ [31m28b1162[m -[33m[m staging: ion: fix corruption of ion_import_dma_buf [32m(32 hours ago) [1;34m<Shawn Lin>[m
+ [31mb4dd8b7[m -[33m[m ion: Handle the memory mapping correctly on x86 [32m(32 hours ago) [1;34m<Vinil Cheeramvelil>[m
+ [31mb19a8a1[m -[33m[m FROMLIST: x86: mm: support ARCH_MMAP_RND_BITS. [32m(2 days ago) [1;34m<dcashman>[m
+ [31md5b6666[m -[33m[m FROMLIST: arm: mm: support ARCH_MMAP_RND_BITS. [32m(2 days ago) [1;34m<dcashman>[m
+ [31mf2ae6f7[m -[33m[m FROMLIST: mm: mmap: Add new /proc tunable for mmap_base ASLR. [32m(2 days ago) [1;34m<dcashman>[m
+ [31m348b2cf[m -[33m[m Revert "Tweak GPU" this was causing overheating somehow [32m(2 days ago) [1;34m<sayeed99>[m
+ [31mef8fe06[m -[33m[m [Nethunter] enable defconfigs from flareM config [32m(4 days ago) [1;34m<sayeed99>[m
+ [31m44519ec[m -[33m[m Start using latest linaro-gcc 5.3.1 toolchain [32m(4 days ago) [1;34m<sayeed99>[m
+ [31mdde0d8a[m -[33m[m Update F2FS To Mainline With FS Encryption [32m(4 days ago) [1;34m<eoghan2t9>[m
+ [31m313660b[m -[33m[m Fix previous cherry-pick [32m(5 days ago) [1;34m<sayeed99>[m
+ [31mb640e97[m -[33m[m Add tweaked governor simpleondemand [32m(5 days ago) [1;34m<AndiP>[m
+ [31m992daa4[m -[33m[m Add tweaked GPU governor simpleondemand [32m(5 days ago) [1;34m<AndiP>[m
+ [31m9f3adc9[m -[33m[m Tweak GPU increase initial frequency and no. of cooling thermal states [32m(5 days ago) [1;34m<sayeed99>[m
+ [31m3dedb41[m -[33m[m Experimental configs and options [32m(6 days ago) [1;34m<eoghan2t9>[m
+ [31m56cb8b1[m -[33m[m Fix Nethunter Kernel switch back to permissive for nethunter kernels [32m(7 days ago) [1;34m<sayeed99>[m
+ [31m61ba76f[m -[33m[m Update Defconfigs [32m(8 days ago) [1;34m<sayeed99>[m
+ [31md93853a[m -[33m[m page_alloc: Make watermarks tunable separately @faux123 [32m(8 days ago) [1;34m<eoghan2t9>[m
+ [31mb0cb8c8[m -[33m[m android: binder: use GPF_HIGHUSER flag since binder is designed for userspace @faux123 [32m(8 days ago) [1;34m<eoghan2t9>[m
+ [31m0e1a17b[m -[33m[m Remove permissive [32m(9 days ago) [1;34m<Eoghan Cunningham>[m
+ [31m2e23708[m -[33m[m lib/memcopy: use glibc version [32m(11 days ago) [1;34m<eoghan2t9>[m
+ [31m1063edd[m -[33m[m fix last cherry-pick [32m(13 days ago) [1;34m<sayeed99>[m
+ [31mbe04600[m -[33m[m PM / devfreq: Add devfreq driver for simple device [32m(13 days ago) [1;34m<Saravana Kannan>[m
+
