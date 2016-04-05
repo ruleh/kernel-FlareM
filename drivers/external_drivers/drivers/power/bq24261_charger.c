@@ -51,7 +51,7 @@
 
 #define CHRG_TERM_WORKER_DELAY (30 * HZ)
 #define EXCEPTION_MONITOR_DELAY (60 * HZ)
-#define WDT_RESET_DELAY (5 * HZ)
+#define WDT_RESET_DELAY (15 * HZ)
 
 /* BQ24261 registers */
 #define BQ24261_STAT_CTRL0_ADDR		0x00
@@ -106,7 +106,6 @@
 #define BQ24261_INLMT_500		(0x02 << 4)
 #define BQ24261_INLMT_900		(0x03 << 4)
 #define BQ24261_INLMT_1500		(0x04 << 4)
-#define BQ24261_INLMT_2000		(0x05 << 4)
 #define BQ24261_INLMT_2500		(0x06 << 4)
 
 #define BQ24261_TE_MASK			(0x01 << 2)
@@ -126,9 +125,6 @@
 #define BQ24261_BOOST_ILIM_MASK		(0x01 << 4)
 #define BQ24261_BOOST_ILIM_500ma	(0x0)
 #define BQ24261_BOOST_ILIM_1A		(0x01 << 4)
-#define BQ24261_VINDPM_OFF_MASK		(0x01 << 0)
-#define BQ24261_VINDPM_OFF_5V		(0x0)
-#define BQ24261_VINDPM_OFF_12V		(0x01 << 0)
 
 #define BQ24261_SAFETY_TIMER_MASK	(0x03 << 5)
 #define BQ24261_SAFETY_TIMER_40MIN	0x00
@@ -160,8 +156,6 @@
 #define BQ24261_MIN_CC			500 /* 500mA */
 #define BQ24261_MAX_CC			3000 /* 3A */
 
-#define BQ24261_INT_COUNTER "bq24261_irq_counter"
-
 u16 bq24261_sfty_tmr[][2] = {
 	{0, BQ24261_SAFETY_TIMER_DISABLED}
 	,
@@ -184,8 +178,6 @@ u16 bq24261_inlmt[][2] = {
 	{900, BQ24261_INLMT_900}
 	,
 	{1500, BQ24261_INLMT_1500}
-	,
-	{2000, BQ24261_INLMT_2000}
 	,
 	{2500, BQ24261_INLMT_2500}
 	,
@@ -264,7 +256,6 @@ struct bq24261_charger {
 	int max_temp;
 	int min_temp;
 	int revision;
-	int cc_limit_max;
 	enum bq24261_chrgr_stat chrgr_stat;
 	bool online;
 	bool present;
@@ -276,7 +267,6 @@ struct bq24261_charger {
 	char model_name[MODEL_NAME_SIZE];
 	char manufacturer[DEV_MANUFACTURER_NAME_SIZE];
 	struct wake_lock chrgr_en_wakelock;
-	u32 irq_counter;
 };
 
 enum bq2426x_model_num {
@@ -486,7 +476,6 @@ static void bq24261_debugfs_init(void)
 {
 	struct dentry *fentry;
 	u32 count = ARRAY_SIZE(bq24261_register_set);
-	struct bq24261_charger *chip = i2c_get_clientdata(bq24261_client);
 	u32 i;
 	char name[6] = {0};
 
@@ -503,13 +492,6 @@ static void bq24261_debugfs_init(void)
 		if (fentry == NULL)
 			goto debugfs_err_exit;
 	}
-
-	fentry = debugfs_create_u32(BQ24261_INT_COUNTER, S_IRUGO,
-			bq24261_dbgfs_dir, &chip->irq_counter);
-
-	if (fentry == NULL)
-		goto debugfs_err_exit;
-
 	dev_err(&bq24261_client->dev, "Debugfs created successfully!!\n");
 	return;
 
@@ -1101,9 +1083,6 @@ static int bq24261_usb_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_MIN_TEMP:
 		chip->min_temp = val->intval;
 		break;
-	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX:
-		chip->cc_limit_max = val->intval;
-		break;
 	default:
 		ret = -ENODATA;
 	}
@@ -1167,7 +1146,7 @@ static int bq24261_usb_get_property(struct power_supply *psy,
 		val->intval = chip->cntl_state;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX:
-		val->intval = chip->cc_limit_max;
+		val->intval = chip->pdata->num_throttle_states;
 		break;
 	case POWER_SUPPLY_PROP_MODEL_NAME:
 		val->strval = chip->model_name;
@@ -1475,7 +1454,6 @@ static int bq24261_handle_irq(struct bq24261_charger *chip, u8 stat_reg)
 		switch (stat_reg & BQ24261_FAULT_MASK) {
 		case BQ24261_VOVP:
 			chip->chrgr_health = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
-			chip->is_charger_enabled = false;
 			schedule_delayed_work(&chip->exception_mon_work,
 					EXCEPTION_MONITOR_DELAY);
 			dev_err(&client->dev, "Charger OVP Fault\n");
@@ -1564,15 +1542,11 @@ static void bq24261_irq_worker(struct work_struct *work)
 	dev_dbg(&chip->client->dev, "%s\n", __func__);
 
 	ret = bq24261_read_reg(chip->client, BQ24261_STAT_CTRL0_ADDR);
-	if (ret < 0) {
+	if (ret < 0)
 		dev_err(&chip->client->dev,
 			"Error (%d) in reading BQ24261_STAT_CTRL0_ADDR\n", ret);
-	} else {
+	else
 		bq24261_handle_irq(chip, ret);
-#ifdef CONFIG_DEBUG_FS
-		chip->irq_counter++;
-#endif
-	}
 
 	mutex_unlock(&chip->stat_lock);
 }
@@ -1775,7 +1749,7 @@ static int bq24261_probe(struct i2c_client *client,
 	chip->psy_usb.throttle_states = chip->pdata->throttle_states;
 	chip->psy_usb.num_throttle_states = chip->pdata->num_throttle_states;
 	chip->psy_usb.supported_cables = POWER_SUPPLY_CHARGER_TYPE_USB;
-	chip->max_cc = chip->pdata->max_cc;
+	chip->max_cc = 1500;
 	chip->max_cv = 4350;
 	chip->chrgr_stat = BQ24261_CHRGR_STAT_UNKNOWN;
 	chip->chrgr_health = POWER_SUPPLY_HEALTH_UNKNOWN;

@@ -490,12 +490,14 @@ static int mdfld_dsi_connector_get_modes(struct drm_connector *connector)
 		mdfld_dsi_get_config(dsi_connector);
 	struct drm_display_mode *fixed_mode;
 	struct drm_display_mode *dup_mode = NULL;
-	struct drm_device *dev = connector->dev;
+	struct drm_device *dev;
 
 	if (!dsi_config) {
 		DRM_ERROR("dsi_config is NULL\n");
 		return MODE_ERROR;
 	}
+	fixed_mode = dsi_config->fixed_mode;
+	dev = connector->dev;
 
 	PSB_DEBUG_ENTRY("\n");
 
@@ -504,7 +506,6 @@ static int mdfld_dsi_connector_get_modes(struct drm_connector *connector)
 	connector->display_info.min_hfreq = 0;
 	connector->display_info.max_hfreq = 200;
 
-	fixed_mode = dsi_config->fixed_mode;
 	if (fixed_mode) {
 		PSB_DEBUG_ENTRY("fixed_mode %dx%d\n",
 				fixed_mode->hdisplay, fixed_mode->vdisplay);
@@ -527,12 +528,13 @@ static int mdfld_dsi_connector_mode_valid(struct drm_connector *connector,
 		MDFLD_DSI_CONNECTOR(psb_output);
 	struct mdfld_dsi_config *dsi_config =
 		mdfld_dsi_get_config(dsi_connector);
-	struct drm_display_mode *fixed_mode = NULL;
+	struct drm_display_mode *fixed_mode;
 
 	if (!dsi_config) {
 		DRM_ERROR("dsi_config is NULL\n");
 		return MODE_ERROR;
 	}
+	fixed_mode = dsi_config->fixed_mode;
 
 	PSB_DEBUG_ENTRY("mode %p, fixed mode %p\n", mode, fixed_mode);
 
@@ -542,11 +544,9 @@ static int mdfld_dsi_connector_mode_valid(struct drm_connector *connector,
 	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
 		return MODE_NO_INTERLACE;
 
-	/**
-	 * FIXME: current DC has no fitting unit, reject any mode setting request
-	 * will figure out a way to do up-scaling(pannel fitting) later.  
+	/** FIXME: current DC has no fitting unit, reject any mode setting
+	 * request will figure out a way to do up-scaling(pannel fitting) later
 	 **/
-	fixed_mode = dsi_config->fixed_mode;
 	if (fixed_mode) {
 		if (mode->hdisplay != fixed_mode->hdisplay)
 			return MODE_PANEL;
@@ -569,8 +569,7 @@ static void mdfld_dsi_connector_dpms(struct drm_connector *connector, int mode)
 static struct drm_encoder *
 mdfld_dsi_connector_best_encoder(struct drm_connector *connector)
 {
-	struct psb_intel_output *psb_output =
-		to_psb_intel_output(connector);
+	struct psb_intel_output *psb_output = to_psb_intel_output(connector);
 	struct mdfld_dsi_connector *dsi_connector =
 		MDFLD_DSI_CONNECTOR(psb_output);
 	struct mdfld_dsi_config *dsi_config =
@@ -635,8 +634,6 @@ static int mdfld_dsi_get_default_config(struct drm_device *dev,
 
 	config->channel_num = 0;
 	config->video_mode = MDFLD_DSI_VIDEO_BURST_MODE;
-
-	config->cabc_mode = CABC_MODE_STILL_IMAGE;
 
 	return 0;
 }
@@ -926,7 +923,7 @@ int mdfld_dsi_output_init(struct drm_device *dev,
 	dsi_config->dev = dev;
 
 	/*init fixed mode basing on DSI config type*/
-	memset(&dsi_panel_info, 0, sizeof(struct panel_info));
+	dsi_panel_info.panel_180_rotation = false;
 	if (dsi_config->type == MDFLD_DSI_ENCODER_DBI) {
 		dsi_config->fixed_mode = p_funcs->get_config_mode();
 		p_funcs->get_panel_info(pipe, &dsi_panel_info);
@@ -938,8 +935,6 @@ int mdfld_dsi_output_init(struct drm_device *dev,
 	width_mm = dsi_panel_info.width_mm;
 	height_mm = dsi_panel_info.height_mm;
 	dev_priv->panel_180_rotation = dsi_panel_info.panel_180_rotation;
-	dev_priv->legacy_csc_enable = dsi_panel_info.legacy_csc_enable;
-	dev_priv->legacy_gamma_enable = dsi_panel_info.legacy_gamma_enable;
 
 	dsi_config->mode = dsi_config->fixed_mode;
 	dsi_config->connector = dsi_connector;
@@ -992,6 +987,14 @@ int mdfld_dsi_output_init(struct drm_device *dev,
 		goto dsi_init_err0;
 	}
 
+#if 0
+	/*init panel error detector*/
+	if (mdfld_dsi_error_detector_init(dev, dsi_connector)) {
+		DRM_ERROR("Failed to init dsi_error detector");
+		goto dsi_init_err1;
+	}
+#endif
+
 	/*create DBI & DPI encoders*/
 	if (dsi_config->type == MDFLD_DSI_ENCODER_DBI) {
 		encoder = mdfld_dsi_dbi_init(dev, dsi_connector, p_funcs);
@@ -1040,6 +1043,9 @@ int mdfld_dsi_output_init(struct drm_device *dev,
 dsi_init_err2:
 	mdfld_dsi_error_detector_exit(dsi_connector);
 
+#if 0
+dsi_init_err1:
+#endif
 	/*destroy sender*/
 	mdfld_dsi_pkg_sender_destroy(dsi_connector->pkg_sender);
 
@@ -1080,7 +1086,27 @@ void mdfld_dsi_set_drain_latency(struct drm_encoder *encoder,
 	ctx = &dsi_config->dsi_hw_context;
 	if (dsi_config->pipe == 0) {
 		mutex_lock(&dsi_config->context_lock);
+#if 0
+		if ((mode->hdisplay == 720) && (mode->vdisplay == 1280))
+			drain_rate = ACTUAL_DRAIN_RATE_7x12;
+		else if ((mode->hdisplay == 1080) && (mode->vdisplay == 1920))
+			drain_rate = ACTUAL_DRAIN_RATE_10x19;
+		else if ((mode->hdisplay == 2560) && (mode->vdisplay == 1600))
+			drain_rate = ACTUAL_DRAIN_RATE_25x16;
+		if (drain_rate != 0) {
+			value = ((64 * 32 / drain_rate) & 0xFF) | 0x80;
+			ctx->ddl1 = value | (HDMI_SPRITE_DEADLINE << 8) |
+					(value << 24);
+			ctx->ddl2 = value | (HDMI_OVERLAY_DEADLINE << 8);
+			ctx->ddl3 = 0;
+			ctx->ddl4 = value | (value << 8);
+			ctx->ddl1 = 0x83838383;
+			ctx->ddl2 = 0x83838383;
+			ctx->ddl3 = 0x83;
+			ctx->ddl4 = 0x8383;
 
+		}
+#endif
 		ctx->ddl1 = 0x86868686;
 		ctx->ddl2 = 0x86868686;
 		ctx->ddl3 = 0x86;
@@ -1094,138 +1120,4 @@ void mdfld_dsi_set_drain_latency(struct drm_encoder *encoder,
 	}
 
 	return;
-}
-
-
-/*
- * mdfld_dsi_set_cabc_mode() - Set cabc hw mode.
- * @dev - Pointer to struct drm_device
- * @dsi_config
- * @cabc_mode
- * Function return value: < 0 if error
- */
-int mdfld_dsi_set_cabc_mode(struct drm_device *dev, struct mdfld_dsi_config *dsi_config, u8 cabc_mode)
-{
-	struct mdfld_dsi_dpi_output *dpi_output;
-	struct mdfld_dsi_dbi_output *dbi_output;
-	struct mdfld_dsi_encoder *encoder;
-	struct panel_funcs *p_funcs;
-	u32 power_island = 0;
-	int err;
-
-	if (!dev || !dsi_config) {
-		DRM_ERROR("Invalid parameter\n");
-		return -EIO;
-	}
-
-	encoder = dsi_config->encoders[dsi_config->type];
-
-	if (dsi_config->type == MDFLD_DSI_ENCODER_DBI) {
-		dbi_output = MDFLD_DSI_DBI_OUTPUT(encoder);
-		p_funcs = dbi_output ? dbi_output->p_funcs : NULL;
-	} else if (dsi_config->type == MDFLD_DSI_ENCODER_DPI) {
-		dpi_output = MDFLD_DSI_DPI_OUTPUT(encoder);
-		p_funcs = dpi_output ? dpi_output->p_funcs : NULL;
-	} else {
-		DRM_ERROR("Invalid parameter\n");
-		return -EIO;
-	}
-
-	if (!p_funcs || !p_funcs->drv_set_cabc_mode) {
-		DRM_INFO("Cannot set panel cabc mode\n");
-		return -EIO;
-	}
-
-	if (!dsi_config->dsi_hw_context.panel_on)
-		return -EIO;
-
-	power_island = pipe_to_island(dsi_config->pipe);
-
-	if (power_island & (OSPM_DISPLAY_A | OSPM_DISPLAY_C))
-		power_island |= OSPM_DISPLAY_MIO;
-
-	if (!power_island_get(power_island))
-		return -EIO;
-
-	mutex_lock(&dsi_config->context_lock);
-
-	mdfld_dsi_dsr_forbid_locked(dsi_config);
-
-	err = p_funcs->drv_set_cabc_mode(dsi_config, cabc_mode);
-	if (err)
-		DRM_ERROR("Failed to set panel cabc mode\n");
-
-	mdfld_dsi_dsr_allow_locked(dsi_config);
-	mutex_unlock(&dsi_config->context_lock);
-	power_island_put(power_island);
-
-	return err;
-}
-
-
-/*
- * mdfld_dsi_get_cabc_mode() - Return cabc hw mode.
- * @dev - Pointer to struct drm_device
- * @dsi_config
- * Function return value: < 0 if error, or cabc mode.
- */
-int mdfld_dsi_get_cabc_mode(struct drm_device *dev, struct mdfld_dsi_config *dsi_config)
-{
-	struct mdfld_dsi_dpi_output *dpi_output;
-	struct mdfld_dsi_dbi_output *dbi_output;
-	struct mdfld_dsi_encoder *encoder;
-	struct panel_funcs *p_funcs;
-	u32 power_island = 0;
-	int ret;
-
-	if (!dev || !dsi_config) {
-		DRM_ERROR("%s:%u: Invalid parameter\n", __func__, __LINE__);
-		return -EIO;
-	}
-
-	encoder = dsi_config->encoders[dsi_config->type];
-
-	if (dsi_config->type == MDFLD_DSI_ENCODER_DBI) {
-		dbi_output = MDFLD_DSI_DBI_OUTPUT(encoder);
-		p_funcs = dbi_output ? dbi_output->p_funcs : NULL;
-	} else if (dsi_config->type == MDFLD_DSI_ENCODER_DPI) {
-		dpi_output = MDFLD_DSI_DPI_OUTPUT(encoder);
-		p_funcs = dpi_output ? dpi_output->p_funcs : NULL;
-	} else {
-		DRM_ERROR("%s:%u: bad config type\n", __func__, __LINE__);
-		return -EIO;
-	}
-
-	if (!p_funcs || !p_funcs->drv_get_cabc_mode) {
-		DRM_ERROR("%s:%u: no dispatch function\n", __func__, __LINE__);
-		return -EIO;
-	}
-
-	if (!dsi_config->dsi_hw_context.panel_on) {
-		DRM_ERROR("%s:%u: not panel_on\n", __func__, __LINE__);
-		return -EIO;
-	}
-
-	power_island = pipe_to_island(dsi_config->pipe);
-
-	if (power_island & (OSPM_DISPLAY_A | OSPM_DISPLAY_C))
-		power_island |= OSPM_DISPLAY_MIO;
-
-	if (!power_island_get(power_island)) {
-		DRM_ERROR("%s:%u: power_island_get failed\n", __func__, __LINE__);
-		return -EIO;
-	}
-
-	mutex_lock(&dsi_config->context_lock);
-	mdfld_dsi_dsr_forbid_locked(dsi_config);
-
-	ret = p_funcs->drv_get_cabc_mode(dsi_config);
-	if (ret < 0)
-		DRM_ERROR("%s:%u: drv_get_cabc_mode failed\n", __func__, __LINE__);
-
-	mdfld_dsi_dsr_allow_locked(dsi_config);
-	mutex_unlock(&dsi_config->context_lock);
-	power_island_put(power_island);
-
-	return ret;
 }

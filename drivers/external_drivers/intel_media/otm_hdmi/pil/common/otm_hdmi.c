@@ -444,7 +444,6 @@ exit:
 	return rc;
 }
 
-
 /**
 * prepare hdmi eld packet and copy it to the given buffer
 * @ctx: hdmi context
@@ -488,7 +487,16 @@ otm_hdmi_ret_t otm_hdmi_get_eld(void *ctx, otm_hdmi_eld_t *eld)
 	/* 00b - indicate HDMI connection type */
 	eld->connection_type = 0;
 	/* number of Short Audio Descriptors  (SAD) */
-	eld->sadc = edid_int->short_audio_descriptor_count;
+	if (edid_int->short_audio_descriptor_count > OTM_HDMI_MAX_SAD_COUNT) {
+		pr_warn("ELD supports a maximum of %d SADs. ",
+				OTM_HDMI_MAX_SAD_COUNT);
+		pr_warn("Limiting SAD count to %d. ",
+				OTM_HDMI_MAX_SAD_COUNT);
+		pr_warn("Some SADs will be lost!\n");
+		eld->sadc = OTM_HDMI_MAX_SAD_COUNT;
+	} else {
+		eld->sadc = edid_int->short_audio_descriptor_count;
+	}
 
 	/* delay of video compared to audio in terms of units of 2ms */
 	eld->audio_synch_delay = 0;
@@ -1255,12 +1263,12 @@ EXPORT_SYMBOL(__pd_attr_get_name);
  * Generic attribute declaration routine
  * @table	: attribute table to be updated
  * @id		: id to be updated to the table
- * @type		: attribute type
+ * @type	: attribute type
  * @flags	: attribute flags
- * @name		: attribute name
+ * @name	: attribute name
  * @value	: attribute default value
- * @min		: min value possible for the attribute
- * @max		: max value possible for the attribute
+ * @min	: min value possible for the attribute
+ * @max	: max value possible for the attribute
  *
  * Returns check otm_hdmi_ret_t
  */
@@ -1295,8 +1303,10 @@ static otm_hdmi_ret_t __pd_attr_declare(otm_hdmi_attribute_t *table,
 
 	switch (type) {
 	case OTM_HDMI_ATTR_TYPE_UINT:
-		table[id].content._uint.value         = (unsigned int) ((uint64_t)value);
-		table[id].content._uint.value_default = (unsigned int) ((uint64_t)value);
+		table[id].content._uint.value         =
+			(unsigned int) (uintptr_t) value;
+		table[id].content._uint.value_default =
+			(unsigned int) (uintptr_t) value;
 		table[id].content._uint.value_min     = min;
 		table[id].content._uint.value_max     = max;
 		break;
@@ -1579,6 +1589,38 @@ otm_hdmi_ret_t otm_hdmi_crtc_set_scaling(void *context,
 }
 
 /**
+ * Description: crtc pll clk get function for hdmi.
+ *
+ * @context		:hdmi_context
+ * @adjusted_mode	:adjusted mode
+ * @pclk_khz:		tmds clk value for the best pll and is needed for audio.
+ *			This field has to be moved into OTM audio
+ *			interfaces when implemented
+ *
+ * Returns:	OTM_HDMI_SUCCESS on success
+ *		OTM_HDMI_ERR_INVAL on NULL input arguments
+ */
+otm_hdmi_ret_t otm_hdmi_crtc_pll_get(void *context,
+				otm_hdmi_timing_t *adjusted_mode,
+				uint32_t *pclk_khz)
+{
+	otm_hdmi_ret_t rc = OTM_HDMI_SUCCESS;
+	hdmi_context_t *ctx = (hdmi_context_t *)context;
+
+	/* program hdmi mode timing registers */
+	rc = ipil_hdmi_crtc_mode_get_program_dpll(&ctx->dev,
+						adjusted_mode->dclk);
+	if (rc != OTM_HDMI_SUCCESS) {
+		pr_debug("\nfailed to program dpll\n");
+		return rc;
+	}
+
+	*pclk_khz = ctx->dev.clock_khz;
+
+	return rc;
+}
+
+/**
  * Description: crtc mode set function for hdmi.
  *
  * @context		:hdmi_context
@@ -1765,6 +1807,21 @@ void otm_hdmi_save_display_registers(void *context, bool connected)
 }
 
 /**
+ * get vic from HDMI display registers
+ * @context	:hdmi_context
+ *
+ * Returns:	vic
+ */
+uint8_t otm_hdmi_get_vic(void *context)
+{
+	pr_debug("Entered %s\n", __func__);
+	if (NULL != context)
+		return ipil_hdmi_get_vic_from_data_island(&((hdmi_context_t *)context)->dev);
+	return 0;
+}
+
+
+/**
  * notify security component of hdcp and hdmi cable status
  *
  * @hdcp	HDCP status: true if phase1 is enabled
@@ -1784,12 +1841,9 @@ void otm_hdmi_update_security_hdmi_hdcp_status(bool hdcp, bool cable)
  * Returns:	none
  * disable HDMI display
  */
-void otm_disable_hdmi(void *context, bool is_connected)
+void otm_disable_hdmi(void *context)
 {
 	pr_debug("Entered %s\n", __func__);
-	if (! is_connected)
-		return;
-
 	if (NULL != context) {
 #ifdef OTM_HDMI_HDCP_ENABLE
 		/* inform HDCP about suspend */

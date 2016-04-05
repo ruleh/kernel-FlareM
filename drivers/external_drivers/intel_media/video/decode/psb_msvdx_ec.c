@@ -1,9 +1,3 @@
-/**
- * file psb_msvdx_ec.c
- * MSVDX error concealment I/O operations
- *
- */
-
 /**************************************************************************
  *
  * Copyright (c) 2007 Intel Corporation, Hillsboro, OR, USA
@@ -420,7 +414,7 @@ void psb_msvdx_update_frame_info(struct msvdx_private *msvdx_priv,
 	for (i = 0; i < MAX_DECODE_BUFFERS; i++) {
 		if (buffer_handle == ec_ctx->frame_info[i].handle)
 			break;
-		if (free_idx < 0 && ec_ctx->frame_info[i].handle == 0)
+		if ((free_idx < 0) && (ec_ctx->frame_info[i].handle == 0))
 			free_idx = i;
 	}
 

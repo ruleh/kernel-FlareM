@@ -39,7 +39,6 @@
 #include <asm/intel_scu_ipcutil.h>
 #include <asm/intel_mid_rpmsg.h>
 #include <asm/intel-mid.h>
-#include <asm/intel_scu_pmic.h>
 
 #include "reboot_target.h"
 
@@ -290,8 +289,6 @@ static int osip_restore(struct OSIP_header *osip, void *data)
 /* down for 8 seconds */
 #define FORCE_SHUTDOWN_DELAY_IN_MSEC 5000
 
-#define PMIC_USBIDCTRL_ADDR 0x19
-
 static int osip_shutdown_notifier_call(struct notifier_block *notifier,
 				     unsigned long what, void *data)
 {
@@ -303,10 +300,6 @@ static int osip_shutdown_notifier_call(struct notifier_block *notifier,
 		pr_info("%s(): sys power off ...\n", __func__);
 
 		if (get_force_shutdown_occured()) {
-			/* BZ 174011 software workaround: clear USBIDCTRL to avoid reboot */
-			ret = intel_scu_ipc_iowrite8(PMIC_USBIDCTRL_ADDR, 0x00);
-			if (ret)
-				pr_err("%s(): PMIC USBIDCTRL clear failed\n", __func__);
 			pr_warn("[SHTDWN] %s: Force shutdown occured, delaying ...\n",
 				__func__);
 			mdelay(FORCE_SHUTDOWN_DELAY_IN_MSEC);
@@ -355,11 +348,13 @@ static int osip_reboot_target_call(const char *target, int id)
 		/* If device is already in RECOVERY we must be able */
 		/* to reboot in MOS if given target is MOS or POS.  */
 		pr_warn("[REBOOT] %s, restoring OSIP\n", __func__);
-		access_osip_record(osip_restore, (void *)(get_osii_index(SIGNED_MOS_ATTR)));
+		access_osip_record(osip_restore, (void *)(uintptr_t)
+				   (get_osii_index(SIGNED_MOS_ATTR)));
 	}
 	if (id == SIGNED_RECOVERY_ATTR && ret_ipc >= 0) {
 		pr_warn("[REBOOT] %s, invalidating osip\n", __func__);
-		access_osip_record(osip_invalidate, (void *)(get_osii_index(SIGNED_MOS_ATTR)));
+		access_osip_record(osip_invalidate, (void *)(uintptr_t)
+				   (get_osii_index(SIGNED_MOS_ATTR)));
 	}
 	return NOTIFY_DONE;
 }
@@ -381,7 +376,6 @@ static struct reboot_target osip_reboot_target = {
 #define OSIP_MAX_CMDLINE_SECTOR ((OSIP_MAX_CMDLINE_SIZE >> 9) + 1)
 
 /* Size used by signature is not the same for valleyview */
-#define OSIP_SIGNATURE_SIZE_MDFLD	0x1E0
 #define OSIP_SIGNATURE_SIZE 		0x2D8
 #define OSIP_VALLEYVIEW_SIGNATURE_SIZE 	0x400
 
@@ -453,11 +447,7 @@ int open_cmdline(struct inode *i, struct file *f)
 	if (!(p->attribute & 1))
 		/* even number: signed add size of signature header. */
 #ifdef CONFIG_INTEL_SCU_IPC
-#ifdef CONFIG_X86_MDFLD
-		p->cmdline += OSIP_SIGNATURE_SIZE_MDFLD;
-#else
 		p->cmdline += OSIP_SIGNATURE_SIZE;
-#endif
 #else
 		p->cmdline += OSIP_VALLEYVIEW_SIGNATURE_SIZE;
 #endif
@@ -623,20 +613,26 @@ static void create_debugfs_files(void)
 	osip_dir = debugfs_create_dir("osip", NULL);
 	/* /sys/kernel/debug/osip/cmdline */
 	(void) debugfs_create_file("cmdline",
-				S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP,
-				osip_dir, (void *)(get_osii_index(SIGNED_MOS_ATTR)), &osip_cmdline_fops);
+				   S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP,
+				   osip_dir, (void *)(uintptr_t)
+				   (get_osii_index(SIGNED_MOS_ATTR)),
+				   &osip_cmdline_fops);
 	/* /sys/kernel/debug/osip/cmdline_ros */
 	(void) debugfs_create_file("cmdline_ros",
 				S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP,
-				osip_dir, (void *)(get_osii_index(SIGNED_RECOVERY_ATTR)), &osip_cmdline_fops);
+				   osip_dir, (void *)(uintptr_t)
+				   (get_osii_index(SIGNED_RECOVERY_ATTR)),
+				   &osip_cmdline_fops);
 	/* /sys/kernel/debug/osip/cmdline_pos */
 	(void) debugfs_create_file("cmdline_pos",
-				S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP,
-				osip_dir, (void *)(get_osii_index(SIGNED_POS_ATTR)), &osip_cmdline_fops);
+				   S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP,
+				   osip_dir, (void *)(uintptr_t)
+				   (get_osii_index(SIGNED_POS_ATTR)),
+				   &osip_cmdline_fops);
 	/* /sys/kernel/debug/osip/decode */
 	(void) debugfs_create_file("decode",
-				S_IFREG | S_IRUGO,
-				osip_dir, NULL, &osip_decode_fops);
+				   S_IFREG | S_IRUGO,
+				   osip_dir, NULL, &osip_decode_fops);
 }
 static void remove_debugfs_files(void)
 {

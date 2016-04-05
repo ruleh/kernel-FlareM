@@ -38,7 +38,7 @@
 #include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/card.h>
 #include <linux/genhd.h>
-#include "jhash_uuid.h"
+#include <jhash_uuid.h>
 #include <linux/io.h>
 #include <asm/intel_scu_ipc.h>
 #include <linux/version.h>
@@ -115,7 +115,7 @@ static int get_emmc0_cid(void)
 			cid_legacy.fwrev = card->cid.fwrev;
 			cid_legacy.month = card->cid.month;
 			snprintf(emmc0_id, sizeof(emmc0_id),
-				 "Medfield%08X",
+				 "%08X",
 				 jhash(&cid_legacy, sizeof(cid_legacy), 0));
 			return 1;
 		}
@@ -133,20 +133,11 @@ static void set_cmdline_serialno(void)
 	int value_length;
 	char SERIALNO_CMDLINE[] = "androidboot.serialno=";
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
-	if (intel_platform_ssn[0] != '\0') {
-		serialno = intel_platform_ssn;
-#else
-	if (intel_mid_ssn[0] != '\0') {
-		serialno = intel_mid_ssn;
-#endif
-	} else {
-		if (strlen(emmc0_id)) {
-			serialno = emmc0_id;
-		} else {
-			pr_err("Failed to get SSN or emmc0 ID\n");
-			goto error;
-		}
+	if (strlen(emmc0_id))
+		serialno = emmc0_id;
+	else {
+		pr_err("Failed to get SSN or emmc0 ID\n");
+		goto error;
 	}
 
 	start = strstr(saved_command_line, SERIALNO_CMDLINE);

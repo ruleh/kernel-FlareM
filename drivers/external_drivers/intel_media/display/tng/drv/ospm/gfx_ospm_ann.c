@@ -383,17 +383,6 @@ void gpu_freq_set_resume_func(int (*resume_func)(void))
 }
 EXPORT_SYMBOL(gpu_freq_set_resume_func);
 
-int gpu_freq_get_max_fuse_setting(void)
-{
-	u32 reg_value;
-
-	/* Fuse value stored in offset 0x10F */
-	reg_value = intel_mid_msgbus_read32(PUNIT_PORT, 0x10F);
-
-	return (reg_value & 0xF);
-}
-EXPORT_SYMBOL(gpu_freq_get_max_fuse_setting);
-
 /***********************************************************
  * All Graphics Island
  ***********************************************************/
@@ -607,27 +596,6 @@ void ospm_sidekick_init(struct drm_device *dev,
 	p_island->p_dependency = get_island_ptr(NC_PM_SSS_GFX_SLC);
 }
 
-#if 0
-static void ospm_check_registers(struct drm_device *dev)
-{
-	uint32_t reg, data;
-
-	PSB_DEBUG_PM("start\n");
-	reg = 0x160008 - GFX_WRAPPER_OFFSET;
-	data = WRAPPER_REG_READ(reg);
-	PSB_DEBUG_PM("0x%08x GFX_CONTROL(0x160008)\n", data);
-	reg = 0x160020 - GFX_WRAPPER_OFFSET;
-	data = WRAPPER_REG_READ(reg);
-	PSB_DEBUG_PM("0x%08x GCILP_CONTROL(0x160020)\n", data);
-	reg = 0x160028 - GFX_WRAPPER_OFFSET;
-	data = WRAPPER_REG_READ(reg);
-	PSB_DEBUG_PM("0x%08x GCILP_ARB_CONTROL(0x160028)\n", data);
-
-	return ;
-}
-#endif
-
-
 static void ospm_pnp_settings(struct drm_device *dev)
 {
 	uint32_t reg, data;
@@ -679,7 +647,7 @@ static bool ospm_slc_power_up(struct drm_device *dev,
 		intel_mid_msgbus_read32(PUNIT_PORT, NC_PM_SSS));
 
 	return !ret;
-#if 0
+
 	if (!ret) {
 		uint32_t reg, data;
 
@@ -691,7 +659,6 @@ static bool ospm_slc_power_up(struct drm_device *dev,
 	}
 
 	return !ret;
-#endif
 }
 
 /**

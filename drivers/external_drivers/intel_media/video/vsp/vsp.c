@@ -1,10 +1,3 @@
-/**
- * file vsp.c
- * VSP IRQ handling and I/O ops
- * Author: Binglin Chen <binglin.chen@intel.com>
- *
- */
-
 /**************************************************************************
  *
  * Copyright (c) 2007 Intel Corporation, Hillsboro, OR, USA
@@ -80,6 +73,43 @@ static inline void psb_clflush(void *addr)
 	__asm__ __volatile__("wbinvd ");
 }
 
+
+static inline void force_power_down_vsp(void)
+{
+	int count = 0;
+	VSP_DEBUG("Force to power down VSP\n");
+	while (is_island_on(OSPM_VIDEO_VPP_ISLAND) && (count < 255)) {
+		count++;
+		VSP_DEBUG("The VSP is on, power down it, tries %d\n", count);
+		power_island_put(OSPM_VIDEO_VPP_ISLAND);
+	}
+	VSP_DEBUG("The VSP is off now (tried %d times)\n", count);
+}
+
+static inline void power_down_vsp(void)
+{
+	VSP_DEBUG("Try to power down VSP\n");
+
+	if (is_island_on(OSPM_VIDEO_VPP_ISLAND)) {
+		VSP_DEBUG("The VSP is on, power down it\n");
+		power_island_put(OSPM_VIDEO_VPP_ISLAND);
+	} else
+		VSP_DEBUG("The VSP is already off\n");
+}
+
+static inline void power_up_vsp(void)
+{
+	VSP_DEBUG("Try to power up VSP\n");
+
+	if (is_island_on(OSPM_VIDEO_VPP_ISLAND))
+		VSP_DEBUG("The VSP is alraedy on\n");
+	else {
+		VSP_DEBUG("The VSP is off, power up it\n");
+		power_island_get(OSPM_VIDEO_VPP_ISLAND);
+	}
+}
+
+
 int vsp_handle_response(struct drm_psb_private *dev_priv)
 {
 	struct vsp_private *vsp_priv = dev_priv->vsp_private;
@@ -132,10 +162,14 @@ int vsp_handle_response(struct drm_psb_private *dev_priv)
 			ret = false;
 
 			/* For VPP component, wouldn't receive any command
-			 * from user space.
+			 * from user space. Release the fence.
 			 */
-			if (msg->context == 0)
+			if (msg->context == CONTEXT_VPP_ID)
 				vsp_priv->vsp_state = VSP_STATE_HANG;
+			else if (msg->context == CONTEXT_COMPOSE_ID) {
+				vsp_priv->vsp_state = VSP_STATE_HANG;
+				sequence = vsp_priv->compose_fence;
+			}
 			break;
 
 		case VssEndOfSequenceResponse:
@@ -227,6 +261,11 @@ int vsp_handle_response(struct drm_psb_private *dev_priv)
 
 			break;
 		}
+		case VssWiDi_ComposeSetSequenceParametersResponse:
+		{
+			VSP_DEBUG("The Compose respose value is %d\n", msg->buffer);
+			break;
+		}
 		case VssWiDi_ComposeFrameResponse:
 		{
 			VSP_DEBUG("Compose sequence %x is done!!\n", msg->buffer);
@@ -307,6 +346,17 @@ int vsp_cmdbuf_vpp(struct drm_file *priv,
 	struct file *filp = priv->filp;
 	bool need_power_put = 0;
 
+	/* If VSP timeout, don't send cmd to hardware anymore */
+	if (vsp_priv->vsp_state == VSP_STATE_HANG) {
+		DRM_ERROR("The VSP is hang abnormally, try to reset vsp hardware!\n");
+
+		VSP_DEBUG("Force state to DOWN to force power down\n");
+		vsp_priv->ctrl->entry_kind = vsp_exit;
+		vsp_priv->vsp_state = VSP_STATE_DOWN;
+		force_power_down_vsp();
+		//return -EFAULT;
+	}
+
 	memset(&cmd_kmap, 0, sizeof(cmd_kmap));
 	vsp_priv->vsp_cmd_num = 1;
 
@@ -350,8 +400,9 @@ int vsp_cmdbuf_vpp(struct drm_file *priv,
 	if (drm_vsp_vpp_batch_cmd == 0)
 		vsp_priv->force_flush_cmd = 1;
 
-	if (vsp_priv->vsp_state == VSP_STATE_IDLE)
-		ospm_apm_power_down_vsp(dev);
+        if ((drm_vsp_pmpolicy != PSB_PMPOLICY_NOPM) &&
+	    (vsp_priv->vsp_state == VSP_STATE_IDLE))
+		power_down_vsp();
 
 	if (vsp_priv->acc_num_cmd >= 1 || vsp_priv->force_flush_cmd != 0
 	    || vsp_priv->delayed_burst_cnt > 0) {
@@ -392,11 +443,6 @@ int vsp_submit_cmdbuf(struct drm_device *dev,
 	struct vsp_private *vsp_priv = dev_priv->vsp_private;
 	int ret;
 
-	/* If VSP timeout, don't send cmd to hardware anymore */
-	if (vsp_priv->vsp_state == VSP_STATE_HANG) {
-		DRM_ERROR("The VSP is hang abnormally!");
-		return -EFAULT;
-	}
 	if (vsp_priv->acc_num_cmd >= 1 || vsp_priv->force_flush_cmd != 0
 	    || vsp_priv->delayed_burst_cnt > 0) {
 		/* consider to invalidate/flush MMU */
@@ -468,7 +514,7 @@ int vsp_send_command(struct drm_device *dev,
 
 		VSP_DEBUG("VSP: rd %d, wr %d, remaining_space %d, ",
 			  rd, wr, remaining_space);
-		VSP_DEBUG("cmd_size %ld sizeof(*cur_cmd) %ld\n",
+		VSP_DEBUG("cmd_size %ld sizeof(*cur_cmd) %zu\n",
 			  cmd_size, sizeof(*cur_cmd));
 
 		if (remaining_space < vsp_priv->vsp_cmd_num) {
@@ -581,7 +627,7 @@ static int vsp_prehandle_command(struct drm_file *priv,
 	struct vss_command_t *cur_cmd;
 	unsigned int cmd_size = arg->cmdbuf_size;
 	int ret = 0;
-	struct ttm_buffer_object *pic_param_bo;
+	struct ttm_buffer_object *pic_param_bo = NULL;
 	int pic_param_num, vsp_cmd_num = 0;
 	struct ttm_validate_buffer *pos, *next;
 	struct drm_device *dev = priv->minor->dev;
@@ -799,7 +845,7 @@ int vsp_fence_vpp_surfaces(struct drm_file *priv,
 	struct ttm_buffer_object *surf_bo;
 	struct ttm_fence_object *fence = NULL;
 	struct list_head surf_list, tmp_list;
-	struct ttm_validate_buffer *pos, *next, *cur_valid_buf;
+	struct ttm_validate_buffer *pos, *next, *cur_valid_buf = NULL;
 	struct ttm_object_file *tfile = BCVideoGetPriv(priv)->tfile;
 	struct drm_device *dev = priv->minor->dev;
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -963,7 +1009,7 @@ static int vsp_fence_vp8enc_surfaces(struct drm_file *priv,
 			pic_param->input_frame.base,
 			pic_param->input_frame.base_uv);
 
-	VSP_DEBUG("pic_param->encoded_frame_base = %d\n",
+	VSP_DEBUG("pic_param->encoded_frame_base = %x\n",
 			pic_param->encoded_frame_base);
 
 	vsp_priv->vp8_encode_frame_cmd = (void *)pic_param;
@@ -1069,12 +1115,14 @@ int vsp_new_context(struct drm_device *dev, struct file *filp, int ctx_type)
 		return -1;
 	}
 
+	mutex_lock(&vsp_priv->vsp_mutex);
 	if (VAEntrypointEncSlice == ctx_type) {
 		vsp_priv->context_vp8_num++;
 		if (vsp_priv->context_vp8_num > MAX_VP8_CONTEXT_NUM) {
 			DRM_ERROR("VSP: Only support 3 vp8 encoding!\n");
 			/* store the 4th vp8 encoding fd for remove context use */
 			vsp_priv->vp8_filp[3] = filp;
+			mutex_unlock(&vsp_priv->vsp_mutex);
 			return -1;
 		}
 
@@ -1100,19 +1148,10 @@ int vsp_new_context(struct drm_device *dev, struct file *filp, int ctx_type)
 		DRM_ERROR("VSP: couldn't support the context %x\n", ctx_type);
 		ret = -1;
 	}
+	mutex_unlock(&vsp_priv->vsp_mutex);
 
 	VSP_DEBUG("context_vp8_num %d, context_vpp_num %d\n",
-			vsp_priv->context_vp8_num, vsp_priv->context_vpp_num);
-
-	/* load VSP firmware now */
-	if (unlikely(vsp_priv->fw_loaded == 0)) {
-		ret = tng_securefw(dev, "vsp", "VSP", TNG_IMR11L_MSG_REGADDR);
-		if (ret != 0) {
-			DRM_ERROR("VSP: failed to init firmware\n");
-			return ret;
-		}
-	}
-
+		  vsp_priv->context_vp8_num, vsp_priv->context_vpp_num);
 	return ret;
 }
 
@@ -1120,7 +1159,6 @@ void vsp_rm_context(struct drm_device *dev, struct file *filp, int ctx_type)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct vsp_private *vsp_priv = dev_priv->vsp_private;
-	bool ret = true;
 	int count = 0;
 	struct vss_command_t *cur_cmd;
 	bool tmp = true;
@@ -1138,6 +1176,7 @@ void vsp_rm_context(struct drm_device *dev, struct file *filp, int ctx_type)
 		return;
 	}
 
+	mutex_lock(&vsp_priv->vsp_mutex);
 	if (vsp_priv->ctrl == NULL) {
 		for (i = 0; i < MAX_VP8_CONTEXT_NUM + 1; i++) {
 			if (filp == vsp_priv->vp8_filp[i])
@@ -1147,24 +1186,19 @@ void vsp_rm_context(struct drm_device *dev, struct file *filp, int ctx_type)
 		if (VAEntrypointEncSlice == ctx_type) {
 			if (vsp_priv->context_vp8_num > 0)
 				vsp_priv->context_vp8_num--;
-		} else if (ctx_type == VAEntrypointVideoProc) {
+		} else if (ctx_type == VAEntrypointVideoProc)
 			if (vsp_priv->context_vpp_num > 0)
 				vsp_priv->context_vpp_num--;
-		}
+		mutex_unlock(&vsp_priv->vsp_mutex);
 		return;
 	}
 
 	VSP_DEBUG("ctx_type=%d\n", ctx_type);
 
-	/* power on again to send VssGenDestroyContext to firmware */
-	if (power_island_get(OSPM_VIDEO_VPP_ISLAND) == false) {
-		DRM_DEBUG_PM("The VSP power on fail!\n");
-		return ;
-	}
+	/* power on the VSP hardware to write registers */
+	power_up_vsp();
 
 	if (VAEntrypointEncSlice == ctx_type && filp != vsp_priv->vp8_filp[3]) {
-		vsp_priv->context_vp8_num--;
-		mutex_lock(&vsp_priv->vsp_mutex);
 		if (vsp_priv->vsp_state == VSP_STATE_SUSPEND) {
 			tmp = vsp_resume_function(dev_priv);
 			VSP_DEBUG("The VSP is on suspend, send resume!\n");
@@ -1207,6 +1241,8 @@ void vsp_rm_context(struct drm_device *dev, struct file *filp, int ctx_type)
 			PSB_UDELAY(6);
 		}
 
+		mutex_lock(&vsp_priv->vsp_mutex);
+		vsp_priv->context_vp8_num--;
 		if (count == 20000) {
 			DRM_ERROR("Failed to handle sigint event\n");
 		}
@@ -1222,26 +1258,28 @@ void vsp_rm_context(struct drm_device *dev, struct file *filp, int ctx_type)
 	if (vsp_priv->context_vp8_num > 0 || vsp_priv->context_vpp_num > 0) {
 		VSP_DEBUG("context_vp8_num %d, context_vpp_num %d\n",
 			vsp_priv->context_vp8_num, vsp_priv->context_vpp_num);
+
+		power_down_vsp();
+		mutex_unlock(&vsp_priv->vsp_mutex);
 		return;
 	}
 
 	vsp_priv->ctrl->entry_kind = vsp_exit;
 
+	VSP_DEBUG("No context now, set state to DOWN to force power down\n");
+	PSB_UDELAY(800);
+	
 	/* in case of power mode 0, HW always active,
 	 * * in case got no response from FW, vsp_state=hang but could not be powered off,
 	 * * force state to down */
 	vsp_priv->vsp_state = VSP_STATE_DOWN;
-	ospm_apm_power_down_vsp(dev);
-
+	force_power_down_vsp();
 	vsp_priv->vsp_state = VSP_STATE_DOWN;
 
-	if (ret == false)
-		PSB_DEBUG_PM("Couldn't power down VSP!");
-	else
-		PSB_DEBUG_PM("VSP: OK. Power down the HW!\n");
-
+	mutex_unlock(&vsp_priv->vsp_mutex);
+	VSP_DEBUG("vsp_rm_context is successful\n");
 	/* FIXME: frequency should change */
-	VSP_PERF("the total time spend on VSP is %lld ms\n",
+	VSP_PERF("the total time spend on VSP is %llu ms\n",
 		 div_u64(vsp_priv->vss_cc_acc, 200 * 1000));
 
 	return;
@@ -1360,7 +1398,7 @@ void vsp_irq_task(struct work_struct *work)
 	struct drm_psb_private *dev_priv;
 	uint32_t sequence;
 
-	if (!vsp_priv || vsp_priv->fw_loaded == VSP_FW_NONE)
+	if (!vsp_priv)
 		return;
 
 	dev = vsp_priv->dev;
@@ -1379,15 +1417,17 @@ void vsp_irq_task(struct work_struct *work)
 			  sequence, vsp_priv->current_sequence);
 	}
 
-	if (vsp_priv->vsp_state == VSP_STATE_IDLE) {
-		if (vsp_priv->ctrl->cmd_rd == vsp_priv->ctrl->cmd_wr)
-			ospm_apm_power_down_vsp(dev);
-		else {
-			while (ospm_power_is_hw_on(OSPM_VIDEO_VPP_ISLAND))
-				ospm_apm_power_down_vsp(dev);
-			VSP_DEBUG("successfully power down VSP\n");
-			power_island_get(OSPM_VIDEO_VPP_ISLAND);
-			vsp_resume_function(dev_priv);
+	if (drm_vsp_pmpolicy != PSB_PMPOLICY_NOPM){
+		if (vsp_priv->vsp_state == VSP_STATE_IDLE) {
+			if (vsp_priv->ctrl->cmd_rd == vsp_priv->ctrl->cmd_wr)
+				power_down_vsp();
+			else {
+				force_power_down_vsp();
+
+				VSP_DEBUG("Now power up VSP again to resume\n");
+				power_up_vsp();
+				vsp_resume_function(dev_priv);
+			}
 		}
 	}
 	mutex_unlock(&vsp_priv->vsp_mutex);
@@ -1448,11 +1488,11 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 	}
 
 	/* ma_header_reg */
-	MM_VSP_READ32(vsp_priv->boot_header.ma_header_reg, 0, &reg);
+	MM_READ32(vsp_priv->boot_header.ma_header_reg, 0, &reg);
 	VSP_DEBUG("ma_header_reg:%x\n", reg);
 
 	/* The setting-struct */
-	VSP_DEBUG("setting addr:%lx\n", vsp_priv->setting_bo->offset);
+	VSP_DEBUG("setting addr:%lu\n", vsp_priv->setting_bo->offset);
 	VSP_DEBUG("setting->command_queue_size:0x%x\n",
 			vsp_priv->setting->command_queue_size);
 	VSP_DEBUG("setting->command_queue_addr:%x\n",
@@ -1465,7 +1505,7 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 	/* dump dma register */
 	VSP_DEBUG("partition1_dma_external_ch[0..23]_pending_req_cnt\n");
 	for (i=0; i <= 23; i++) {
-		MM_VSP_READ32(0x150010, i * 0x20, &reg);
+		MM_READ32(0x150010, i * 0x20, &reg);
 		if (reg != 0)
 			VSP_DEBUG("partition1_dma_external_ch%d_pending_req_cnt = 0x%x\n",
 					i, reg);
@@ -1473,7 +1513,7 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 
 	VSP_DEBUG("partition1_dma_external_dim[0..31]_pending_req_cnt\n");
 	for (i=0; i <= 31; i++) {
-		MM_VSP_READ32(0x151008, i * 0x20, &reg);
+		MM_READ32(0x151008, i * 0x20, &reg);
 		if (reg != 0)
 			VSP_DEBUG("partition1_dma_external_dim%d_pending_req_cnt = 0x%x\n",
 					i, reg);
@@ -1481,14 +1521,14 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 
 	VSP_DEBUG("partition1_dma_internal_ch[0..7]_pending_req_cnt\n");
 	for (i=0; i <= 7; i++) {
-		MM_VSP_READ32(0x160010, i * 0x20, &reg);
+		MM_READ32(0x160010, i * 0x20, &reg);
 		if (reg != 0)
 			VSP_DEBUG("partition1_dma_internal_ch%d_pending_req_cnt = 0x%x\n",
 					i, reg);
 	}
 	VSP_DEBUG("partition1_dma_internal_dim[0..7]_pending_req_cnt\n");
 	for (i=0; i <= 7; i++) {
-		MM_VSP_READ32(0x160408, i * 0x20, &reg);
+		MM_READ32(0x160408, i * 0x20, &reg);
 		if (reg != 0)
 			VSP_DEBUG("partition1_dma_internal_dim%d_pending_req_cnt = 0x%x\n",
 					i, reg);
@@ -1496,7 +1536,7 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 
 	/* IRQ registers */
 	for (i = 0; i < 6; i++) {
-		MM_VSP_READ32(0x180000, i * 4, &reg);
+		MM_READ32(0x180000, i * 4, &reg);
 		VSP_DEBUG("partition1_gp_ireg_IRQ%d:%x", i, reg);
 	}
 	IRQ_REG_READ32(VSP_IRQ_CTRL_IRQ_EDGE, &reg);
@@ -1513,7 +1553,7 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 	VSP_DEBUG("partition1_irq_control_irq_pulse:%x\n", reg);
 
 	/* MMU table address */
-	MM_VSP_READ32(MMU_TABLE_ADDR, 0x0, &reg);
+	MM_READ32(MMU_TABLE_ADDR, 0x0, &reg);
 	VSP_DEBUG("mmu_page_table_address:%x\n", reg);
 
 	/* SP0 info */
@@ -1589,19 +1629,19 @@ int psb_vsp_dump_info(struct drm_psb_private *dev_priv)
 
 	/* ECA info */
 	VSP_DEBUG("ECA info\n");
-	MM_VSP_READ32(0x30000, 0x0, &reg);
+	MM_READ32(0x30000, 0x0, &reg);
 	VSP_DEBUG("partition1_sp0_tile_eca_stat_and_ctrl:%x\n", reg);
-	MM_VSP_READ32(0x30000, 0x4, &reg);
+	MM_READ32(0x30000, 0x4, &reg);
 	VSP_DEBUG("partition1_sp0_tile_eca_base_address:%x\n", reg);
-	MM_VSP_READ32(0x30000, 0x2C, &reg);
+	MM_READ32(0x30000, 0x2C, &reg);
 	VSP_DEBUG("partition1_sp0_tile_eca_debug_pc:%x\n", reg);
-	MM_VSP_READ32(0x30000, 0x30, &reg);
+	MM_READ32(0x30000, 0x30, &reg);
 	VSP_DEBUG("partition1_sp0_tile_eca_stall_stat_cfg_pmem_loc_op0:%x\n",
 			reg);
 
 	/* WDT info */
 	for (i = 0; i < 14; i++) {
-		MM_VSP_READ32(0x170000, i * 4, &reg);
+		MM_READ32(0x170000, i * 4, &reg);
 		VSP_DEBUG("partition1_wdt_reg%d:%x\n", i, reg);
 	}
 
@@ -1679,18 +1719,6 @@ void check_invalid_cmd_type(unsigned int cmd_type)
 		DRM_ERROR("state buffer size too small\n");
 		break;
 
-	case VssWiDi_ComposeInit:
-		DRM_ERROR("WiDi Composer init failure\n");
-		break;
-
-	case VssWiDi_ComposeFrameCommand:
-		DRM_ERROR("WiDi composer compose frame failure\n");
-		break;
-
-	case VssWiDi_ComposeEndOfSequenceCommand:
-		DRM_ERROR("WiDi composer end of sequence command failure\n");
-		break;
-
 	default:
 		DRM_ERROR("VSP: Unknown command type %x\n", cmd_type);
 		break;
@@ -1716,6 +1744,7 @@ void check_invalid_cmd_arg(unsigned int cmd_type)
 
 void handle_error_response(unsigned int error_type, unsigned int cmd_type)
 {
+
 	switch (error_type) {
 	case VssInvalidCommandType:
 		check_invalid_cmd_type(cmd_type);
@@ -1733,13 +1762,11 @@ void handle_error_response(unsigned int error_type, unsigned int cmd_type)
 		break;
 	case VssInvalidSequenceParameters_VP8:
 		check_invalid_cmd_type(cmd_type);
-		DRM_ERROR("VSP: Invalid sequence parameter(vp8) or"
-			" invalid frame parameter(WiDi composer)\n");
+		DRM_ERROR("VSP: Invalid sequence parameter\n");
 		break;
 	case VssInvalidPictureParameters_VP8:
 		check_invalid_cmd_type(cmd_type);
-		DRM_ERROR("VSP: Invalid picture parameter(vp8) or"
-			" init failure (WiDi composer)\n");
+		DRM_ERROR("VSP: Invalid picture parameter\n");
 		break;
 	case VssInitFailure_VP8:
 		check_invalid_cmd_type(cmd_type);

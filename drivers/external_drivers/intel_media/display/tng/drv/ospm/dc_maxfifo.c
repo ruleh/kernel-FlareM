@@ -29,11 +29,11 @@
 #include "dc_maxfifo.h"
 #include "psb_drv.h"
 #include "psb_intel_reg.h"
-#include "mdfld_dsi_output.h"
 
-#include <linux/spinlock.h>
 #include <linux/device.h>
 #include <linux/intel_mid_pm.h>
+
+#define MAXFIFO_IDLE_FRAME_COUNT	10
 
 /* When the Display controller buffer is above the high watermark
  * the display controller has enough data and does not need to
@@ -64,23 +64,42 @@
 		DC_MAXFIFO_REGSTOSET_DSPSRCTRL_MAXFIFO |\
 		DC_MAXFIO_REGSTOSET_DSPSSM_S0i1_DISP )
 
+typedef enum {
+	S0i1_DISP_STATE_NOT_READY = 0,
+	S0i1_DISP_STATE_READY,
+	S0i1_DISP_STATE_ENTERED
+} S0i1_DISP_STATE;
 
-static int maxfifo_entry_delay = 80;
+struct dc_maxfifo {
+	struct mutex maxfifo_mtx;
+
+	struct drm_device	*dev_drm;
+	bool repeat_frame_interrupt_on;
+	int  regs_to_set;
+	S0i1_DISP_STATE s0i1_disp_state;
+	struct work_struct repeat_frame_interrupt_work;
+};
+
+/* Sysfs Entries for Maxfifo mode
+ */
+static ssize_t _show_sysfs_enable (struct device *kdev,
+					struct device_attribute *attr,
+					char *buf);
+static ssize_t _store_sysfs_enable (struct device *kdev,
+					struct device_attribute *attr,
+					const char *buf, size_t count);
+static ssize_t _show_sysfs_state (struct device *kdev,
+					struct device_attribute *attr, char *buf);
+static inline bool _maxfifo_create_sysfs_entries(struct drm_device * dev);
+
+#ifndef ENABLE_HW_REPEAT_FRAME
+int maxfifo_entry_delay = 150;
 EXPORT_SYMBOL(maxfifo_entry_delay);
 module_param_named(maxfifo_delay, maxfifo_entry_delay, int, 0600);
 
-static void maxfifo_report_repeat_frame_interrupt(struct drm_device *dev)
-{
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
-
-	schedule_work(&maxfifo_info->repeat_frame_interrupt_work);
-}
-
 static void maxfifo_timer_func(unsigned long data)
 {
-	struct drm_device *dev = (struct drm_device *)data;
-	maxfifo_report_repeat_frame_interrupt(dev);
+	maxfifo_report_repeat_frame_interrupt((struct drm_device *)data);
 }
 
 static int maxfifo_timer_init(struct drm_device *dev)
@@ -92,6 +111,7 @@ static int maxfifo_timer_init(struct drm_device *dev)
 
 	maxfifo_timer->data = (unsigned long)dev;
 	maxfifo_timer->function = maxfifo_timer_func;
+	maxfifo_timer->expires = jiffies + maxfifo_entry_delay*HZ/1000;
 
 	return 0;
 }
@@ -100,215 +120,176 @@ void maxfifo_timer_start(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct timer_list *maxfifo_timer = &dev_priv->maxfifo_timer;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
+	struct dc_maxfifo * maxfifo_info =
+		(struct dc_maxfifo *)
+		((struct drm_psb_private *)dev->dev_private)->dc_maxfifo_info;
 
-	if (!maxfifo_info)
-		return;
-
-	mod_timer(maxfifo_timer,
-		  jiffies + msecs_to_jiffies(maxfifo_entry_delay));
+	if(maxfifo_info->repeat_frame_interrupt_on)
+		mod_timer(maxfifo_timer, jiffies + maxfifo_entry_delay*HZ/1000);
 }
 
 void maxfifo_timer_stop(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
-
-	if (!maxfifo_info)
-		return;
 
 	del_timer(&dev_priv->maxfifo_timer);
 }
+#endif
 
-static void maxfifo_send_hwc_uevent(struct drm_device * dev)
+
+void enable_repeat_frame_intr(struct drm_device *dev)
+{
+#ifndef ENABLE_HW_REPEAT_FRAME
+	struct dc_maxfifo * maxfifo_info =
+		(struct dc_maxfifo *)
+		((struct drm_psb_private *)dev->dev_private)->dc_maxfifo_info;
+
+	maxfifo_info->repeat_frame_interrupt_on = true;
+#else
+	if (power_island_get(OSPM_DISPLAY_A)) {
+		mrfl_enable_repeat_frame_intr(dev, MAXFIFO_IDLE_FRAME_COUNT);
+		power_island_put(OSPM_DISPLAY_A);
+	}
+#endif
+}
+
+void disable_repeat_frame_intr(struct drm_device *dev)
+{
+#ifndef ENABLE_HW_REPEAT_FRAME
+	struct dc_maxfifo * maxfifo_info =
+		(struct dc_maxfifo *)
+		((struct drm_psb_private *)dev->dev_private)->dc_maxfifo_info;
+
+	maxfifo_info->repeat_frame_interrupt_on = false;
+#else
+	if (power_island_get(OSPM_DISPLAY_A)) {
+		mrfl_disable_repeat_frame_intr(dev);
+		power_island_put(OSPM_DISPLAY_A);
+	}
+#endif
+}
+
+static void _maxfifo_send_hwc_uevent(struct drm_device * dev)
 {
 	char *event_string = "REPEATED_FRAME";
 	char *envp[] = { event_string, NULL };
+	PSB_DEBUG_PM("Sending uevent to HWC\n");
 
-	PSB_DEBUG_MAXFIFO("maxfifo: sending uevent to HWC\n");
-	kobject_uevent_env(&dev->primary->kdev.kobj, KOBJ_CHANGE, envp);
+	kobject_uevent_env(&dev->primary->kdev.kobj,
+				KOBJ_CHANGE, envp);
 }
 
-static void maxfifo_send_hwc_event_work(struct work_struct *work)
+static void _maxfifo_send_hwc_event_work(struct work_struct *work)
 {
-	struct dc_maxfifo *maxfifo_info = container_of(work,
-				struct dc_maxfifo, repeat_frame_interrupt_work);
+	struct dc_maxfifo * maxfifo_info =
+		container_of(work, struct dc_maxfifo, repeat_frame_interrupt_work);
+	 _maxfifo_send_hwc_uevent(maxfifo_info->dev_drm);
 
-	/* Network streaming video playback FPS may be as low as 10fps. We do not want
-	 * to trigger layers composition for every frame. So we set maxFIFO latecy
-	 * longer in such scenario, but still use shorter latecy for other scenario. */
-	if ((jiffies - maxfifo_info->last_jiffies) < msecs_to_jiffies(200))
-		maxfifo_entry_delay = 300;
-	else
-		maxfifo_entry_delay = 60;
-
-	PSB_DEBUG_MAXFIFO("last jiffies %ld, now: %ld, set timer delay: %dms\n",
-		maxfifo_info->last_jiffies, jiffies, maxfifo_entry_delay);
-
-	/* Do not adjust maxfifo latency if we just adjust it to avoid it swing between
-	 * long and short */
-	if (!maxfifo_info->jiffies_record) {
-		maxfifo_info->last_jiffies = jiffies;
-		maxfifo_info->jiffies_record = 1;
-	} else
-		maxfifo_info->jiffies_record = 0;
-
-	maxfifo_send_hwc_uevent(maxfifo_info->dev_drm);
 }
 
-bool can_enter_maxfifo_s0i1_display(struct drm_device *dev, int mode)
+void maxfifo_report_repeat_frame_interrupt(struct drm_device * dev)
 {
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
-
-	if (!maxfifo_info)
-		return false;
-
-	if (maxfifo_info->req_mode != mode) {
-		/* new mode, restart entry count */
-		maxfifo_info->maxfifo_try_count = 0;
-		maxfifo_info->req_mode = mode;
-		/* Stop idle timer for overlay only case */
-		if (2 == mode)
-			maxfifo_timer_stop(dev);
-		return false;
-	}
-
-	/* enter into maxfifo if we get 20 consecutive same mode requests */
-	if (maxfifo_info->maxfifo_try_count++ > 20)
-		return true;
-
-	return false;
+	struct dc_maxfifo * maxfifo_info =
+		(struct dc_maxfifo *)
+		((struct drm_psb_private *)dev->dev_private)->dc_maxfifo_info;
+#ifdef ENABLE_HW_REPEAT_FRAME
+	mrfl_disable_repeat_frame_intr(dev);
+#else
+	if (maxfifo_info)
+		maxfifo_info->repeat_frame_interrupt_on = false;
+#endif
+	if (maxfifo_info)
+		schedule_work(&maxfifo_info->repeat_frame_interrupt_work);
 }
 
+bool enter_s0i1_display_mode(struct drm_device *dev)
+{
+	struct drm_psb_private * dev_priv = dev->dev_private;
+	struct dc_maxfifo * maxfifo_info =
+		(struct dc_maxfifo *) dev_priv->dc_maxfifo_info;
+
+
+	if (maxfifo_info &&
+		(maxfifo_info->s0i1_disp_state == S0i1_DISP_STATE_READY)){
+
+		pmu_set_s0i1_disp_vote(true);
 /*
- * can be called from mid_enable_pipe_event() with dev_priv->irqmask_lock held
- * so lock acquire sequence is:
- * 	dev_priv.irqmask_lock -> maxfifo_info.lock
- * can't call dpst_irq enable/disable with maxfifo_info.lock held,
- * it will cause ABBA deadlock.
- */
-bool enter_s0i1_display_mode(struct drm_device *dev, bool from_playback)
-{
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
-	unsigned long flags;
-	int ret;
+		u32 dsp_ss_pm_val;
 
-	if (!maxfifo_info)
-		return false;
-
-	/*
-	 * enter s0i1-disp mode after vblank is disabled,
-	 * need to cancel hrt timer to avoid exiting from s0i1-disp mode
-	 */
-	if (!from_playback)
-		hrtimer_cancel(&dev_priv->vsync_timer);
-
-	spin_lock_irqsave(&maxfifo_info->lock, flags);
-
-	if (maxfifo_info->s0i1_disp_state != S0i1_DISP_STATE_READY) {
-		ret = false;
-		goto out;
+		dsp_ss_pm_val = intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM);
+		dsp_ss_pm_val |= PUNIT_DSPSSPM_ENABLE_S0i1_DISPLAY;
+		intel_mid_msgbus_write32(PUNIT_PORT, DSP_SS_PM, dsp_ss_pm_val);
+*/
+		maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_ENTERED;
+		PSB_DEBUG_PM("Enabled S0i1-Display Punit DSPSSMP Register\n");
 	}
-
-	ret = true;
-	psb_disable_pipestat(dev_priv, 0, PIPE_VBLANK_INTERRUPT_ENABLE);
-	pmu_set_s0i1_disp_vote(true);
-	maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_ENTERED;
-	PSB_DEBUG_MAXFIFO("maxfifo: enter s0i1-display playback:%d\n",
-			  from_playback);
-	if (dev_priv->psb_dpst_state)
-		psb_irq_turn_off_dpst_no_lock(dev);
-
-out:
-	spin_unlock_irqrestore(&maxfifo_info->lock, flags);
-	return ret;
-}
-
-static void __exit_s0i1_display_mode(struct drm_device *dev)
-{
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
-
-	if (maxfifo_info->s0i1_disp_state != S0i1_DISP_STATE_ENTERED) {
-		PSB_DEBUG_MAXFIFO("maxfifo: not in s0i1 display mode\n");
-		return;
-	}
-
-	pmu_set_s0i1_disp_vote(false);
-	maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_READY;
-
-	if (dev_priv->psb_dpst_state)
-		psb_irq_turn_on_dpst_no_lock(dev);
-
-	psb_enable_pipestat(dev_priv, 0, PIPE_VBLANK_INTERRUPT_ENABLE);
-	PSB_DEBUG_MAXFIFO("maxfifo: exit s0i1-display\n");
-}
-
-bool exit_s0i1_display_mode(struct drm_device *dev)
-{
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
-	unsigned long flags;
-
-	if (!maxfifo_info)
-		return false;
-
-	spin_lock_irqsave(&maxfifo_info->lock, flags);
-	__exit_s0i1_display_mode(dev);
-	spin_unlock_irqrestore(&maxfifo_info->lock, flags);
 
 	return true;
 }
 
-bool enter_maxfifo_mode(struct drm_device *dev, int mode)
+bool exit_s0i1_display_mode(struct drm_device *dev)
+{
+	struct drm_psb_private * dev_priv = dev->dev_private;
+	struct dc_maxfifo * maxfifo_info =
+		(struct dc_maxfifo *) dev_priv->dc_maxfifo_info;
+	if (maxfifo_info &&
+		(maxfifo_info->s0i1_disp_state == S0i1_DISP_STATE_ENTERED)){
+
+		pmu_set_s0i1_disp_vote(false);
+/*
+		u32 dsp_ss_pm_val;
+
+		dsp_ss_pm_val = intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM);
+		dsp_ss_pm_val &= ~PUNIT_DSPSSPM_ENABLE_S0i1_DISPLAY;
+		intel_mid_msgbus_write32(PUNIT_PORT, DSP_SS_PM, dsp_ss_pm_val);
+*/
+		maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_NOT_READY;
+		PSB_DEBUG_PM(" Disabled S0i1-Display in Punit DSPSSMP Register\n");
+	}
+
+	return true;
+}
+
+bool enter_maxfifo_mode(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = psb_priv(dev);
 	struct dc_maxfifo * maxfifo_info = dev_priv->dc_maxfifo_info;
-	unsigned long flags;
 	u32 dspsrctrl_val = MAXFIFO_LOW_WATEMARK | MAXFIFO_HIGH_WATERMARK;
 	u32 regs_to_set;
 
 	if (!maxfifo_info)
 		return false;
 
+#ifndef ENABLE_HW_REPEAT_FRAME
 	maxfifo_timer_stop(dev);
+#endif
+	mutex_lock(&maxfifo_info->maxfifo_mtx);
+	regs_to_set = maxfifo_info->regs_to_set;
+
+	if (dev_priv->psb_dpst_state)
+		psb_irq_disable_dpst(dev);
 
 	if (power_island_get(OSPM_DISPLAY_A)) {
-		spin_lock_irqsave(&maxfifo_info->lock, flags);
-
-		regs_to_set = maxfifo_info->regs_to_set;
 		if (regs_to_set & DC_MAXFIFO_REGSTOSET_DSPSRCTRL_ENABLE) {
 			dspsrctrl_val |= DSPSRCTRL_MAXFIFO_ENABLE;
-			dspsrctrl_val |= mode << 24;
 			if (regs_to_set & DC_MAXFIFO_REGSTOSET_DSPSRCTRL_MAXFIFO)
 				dspsrctrl_val |= DSPSRCTRL_MAXFIFO_MODE_ALWAYS_MAXFIFO;
-			maxfifo_info->ddl1 = PSB_RVDC32(DDL1);
-			maxfifo_info->ddl2 = PSB_RVDC32(DDL2);
-			maxfifo_info->ddl3 = PSB_RVDC32(DDL3);
-			maxfifo_info->ddl4 = PSB_RVDC32(DDL4);
 			PSB_WVDC32(dspsrctrl_val, DSPSRCTRL_REG);
-			/* As SV suggestion, we need to set DDL as 0 in maxfifo mode */
-			PSB_WVDC32(0, DDL1);
-			PSB_WVDC32(0, DDL2);
-			PSB_WVDC32(0, DDL3);
-			PSB_WVDC32(0, DDL4);
-			maxfifo_info->maxfifo_current_state = mode;
 		}
 
-		if (regs_to_set & DC_MAXFIO_REGSTOSET_DSPSSM_S0i1_DISP)
+		if (regs_to_set & DC_MAXFIO_REGSTOSET_DSPSSM_S0i1_DISP) {
+			unsigned long irqflags;
+			spin_lock_irqsave(&dev_priv->irqmask_lock, irqflags);
 			maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_READY;
+			spin_unlock_irqrestore(&dev_priv->irqmask_lock, irqflags);
 
-		PSB_DEBUG_MAXFIFO("maxfifo: enter into maxfifo mode %d, "
-				  "DSPSRCTRL = %08x, DSP_SS_PM = %08x\n",
-				  mode, PSB_RVDC32(DSPSRCTRL_REG),
+		}
+		PSB_DEBUG_PM("S0i1-Display-ENABLE : Reg DSPSRCTRL = %08x, "
+				"DSP_SS_PM = %08x\n", PSB_RVDC32(DSPSRCTRL_REG),
 				intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM));
-
-		spin_unlock_irqrestore(&maxfifo_info->lock, flags);
 		power_island_put(OSPM_DISPLAY_A);
 	}
-
+	mutex_unlock(&maxfifo_info->maxfifo_mtx);
 	return true;
 }
 
@@ -317,65 +298,99 @@ bool exit_maxfifo_mode(struct drm_device *dev)
 	struct drm_psb_private *dev_priv = psb_priv(dev);
 	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
 	u32 dspsrctrl_val = MAXFIFO_LOW_WATEMARK | MAXFIFO_HIGH_WATERMARK;
-	unsigned long flags;
 
 	if (!maxfifo_info)
 		return false;
 
+	if (dev_priv->psb_dpst_state)
+		psb_irq_enable_dpst(dev);
+
+	mutex_lock(&maxfifo_info->maxfifo_mtx);
 	if (power_island_get(OSPM_DISPLAY_A)) {
-		spin_lock_irqsave(&maxfifo_info->lock, flags);
-
-		__exit_s0i1_display_mode(dev);
-
-		PSB_DEBUG_MAXFIFO("maxfifo: exit maxfifo mode %d, "
-				  "DSPSRCTRL = %08x, DSP_SS_PM = %08x\n",
-				  maxfifo_info->maxfifo_current_state,
-				  PSB_RVDC32(DSPSRCTRL_REG),
-				intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM));
-
-		/* Set DDL back to original values when leaving maxfifo */
-		PSB_WVDC32(maxfifo_info->ddl1, DDL1);
-		PSB_WVDC32(maxfifo_info->ddl2, DDL2);
-		PSB_WVDC32(maxfifo_info->ddl3, DDL3);
-		PSB_WVDC32(maxfifo_info->ddl4, DDL4);
+		unsigned long irqflags;
 		PSB_WVDC32(dspsrctrl_val, DSPSRCTRL_REG);
-		maxfifo_info->maxfifo_current_state = -1;
-		maxfifo_info->req_mode = -1;
-		maxfifo_info->maxfifo_try_count = 0;
-		maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_NOT_READY;
 
-		spin_unlock_irqrestore(&maxfifo_info->lock, flags);
+		spin_lock_irqsave(&dev_priv->irqmask_lock, irqflags);
+		exit_s0i1_display_mode(dev);
+		// ? maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_NOT_READY;
+		spin_unlock_irqrestore(&dev_priv->irqmask_lock, irqflags);
+		PSB_DEBUG_PM("S0i1-Display-DISABLE : Reg DSPSRCTRL = %08x, "
+				"DSP_SS_PM = %08x\n", PSB_RVDC32(DSPSRCTRL_REG),
+				intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM));
 		power_island_put(OSPM_DISPLAY_A);
 	}
-
+	mutex_unlock(&maxfifo_info->maxfifo_mtx);
 	return true;
 }
 
-/*
- * Sysfs Entries for Maxfifo mode
- */
+int dc_maxfifo_init(struct drm_device *dev)
+{
+	struct dc_maxfifo * maxfifo_info = NULL;
+	struct drm_psb_private *dev_priv =
+		(struct drm_psb_private *)dev->dev_private;
+
+	if (dev_priv->dc_maxfifo_info)
+		return true;
+
+	dev_priv->dc_maxfifo_info =
+		kzalloc(sizeof(struct dc_maxfifo), GFP_KERNEL);
+
+	if (!dev_priv->dc_maxfifo_info) {
+		DRM_ERROR("No memory\n");
+		return -ENOMEM;
+	}
+	maxfifo_info = dev_priv->dc_maxfifo_info;
+
+	mutex_init(&maxfifo_info->maxfifo_mtx);
+
+	mutex_lock(&maxfifo_info->maxfifo_mtx);
+
+	maxfifo_info->dev_drm = dev;
+	maxfifo_info->regs_to_set = TNG_MAXFIFO_REGS_TO_SET_DEFAULT;
+	maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_NOT_READY;
+
+	INIT_WORK(&maxfifo_info->repeat_frame_interrupt_work,
+			_maxfifo_send_hwc_event_work);
+
+#ifndef ENABLE_HW_REPEAT_FRAME
+	maxfifo_info->repeat_frame_interrupt_on = false;
+	maxfifo_timer_init(dev);
+#endif
+	_maxfifo_create_sysfs_entries(dev);
+	/*Initialize the sysfs entries*/
+
+	mutex_unlock(&maxfifo_info->maxfifo_mtx);
+	return 0;
+
+
+}
+
+
 static ssize_t _show_sysfs_enable (struct device *kdev,
-				   struct device_attribute *attr, char *buf)
+					struct device_attribute *attr, char *buf)
 {
 	int enabled = 0;
 
 	struct drm_minor *minor = container_of(kdev, struct drm_minor, kdev);
 	struct drm_device *dev = minor->dev;
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct dc_maxfifo *maxfifo_info = dev_priv->dc_maxfifo_info;
+	struct drm_psb_private * dev_priv = dev->dev_private;
+	struct dc_maxfifo * maxfifo_info = dev_priv->dc_maxfifo_info;
 
-	if (maxfifo_info)
+	if (maxfifo_info){
+		mutex_lock(&maxfifo_info->maxfifo_mtx);
 		enabled = maxfifo_info->regs_to_set;
-
+		mutex_unlock(&maxfifo_info->maxfifo_mtx);
+	}
 	return sprintf(buf, "%d\n", enabled);
 
 }
 
-static ssize_t _store_sysfs_enable(struct device *kdev,
-				   struct device_attribute *attr,
-				   const char *buf, size_t count)
+static ssize_t _store_sysfs_enable (struct device *kdev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
 {
-	int enable;
+	int ret = -EINVAL;
+	int enable = 0;
 
 	struct drm_minor *minor = container_of(kdev, struct drm_minor, kdev);
 	struct drm_device *dev = minor->dev;
@@ -383,27 +398,28 @@ static ssize_t _store_sysfs_enable(struct device *kdev,
 	struct dc_maxfifo * maxfifo_info = dev_priv->dc_maxfifo_info;
 
 	if (maxfifo_info) {
-		sscanf(buf, "%d", &enable);
-
-		spin_lock_irq(&maxfifo_info->lock);
+		ret = sscanf(buf, "%d", &enable);
+		mutex_lock(&maxfifo_info->maxfifo_mtx);
 		maxfifo_info->regs_to_set = enable;
-		spin_unlock_irq(&maxfifo_info->lock);
-
+		mutex_unlock(&maxfifo_info->maxfifo_mtx);
 		if (enable & 0x8)
-			enter_maxfifo_mode(dev, 0);
+			enter_maxfifo_mode(dev);
 		if (enable & 0x10)
 			exit_maxfifo_mode(dev);
 		if (enable & 0x20)
 			maxfifo_report_repeat_frame_interrupt(dev);
+		if (enable & 0x40)
+			enable_repeat_frame_intr(dev);
 		if (enable & 0x80)
-			maxfifo_send_hwc_uevent(dev);
+			_maxfifo_send_hwc_uevent(dev);
+
 	}
 
 	return count;
 }
 
 static ssize_t _show_sysfs_state (struct device *kdev,
-				struct device_attribute *attr, char *buf)
+					struct device_attribute *attr, char *buf)
 {
 	int ret = 0;
 
@@ -412,20 +428,21 @@ static ssize_t _show_sysfs_state (struct device *kdev,
 	struct drm_psb_private * dev_priv = dev->dev_private;
 	struct dc_maxfifo * maxfifo_info = dev_priv->dc_maxfifo_info;
 
-	if (maxfifo_info) {
-		spin_lock_irq(&maxfifo_info->lock);
-		ret = sprintf(buf,
-			      "S0i1-Display-Status: Reg DSPSRCTRL = %08x, "
-			      "DSP_SS_PM = %08x\n",
-			      PSB_RVDC32(DSPSRCTRL_REG),
-			      intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM));
-		spin_unlock_irq(&maxfifo_info->lock);
+	if (maxfifo_info){
+		mutex_lock(&maxfifo_info->maxfifo_mtx);
+		ret = sprintf(buf, "S0i1-Display-Status : Reg DSPSRCTRL = %08x, "
+				"DSP_SS_PM = %08x\n", PSB_RVDC32(DSPSRCTRL_REG),
+				intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM));
+		PSB_DEBUG_PM("S0i1-Display-Status : Reg DSPSRCTRL = %08x, "
+				"DSP_SS_PM = %08x\n", PSB_RVDC32(DSPSRCTRL_REG),
+				intel_mid_msgbus_read32(PUNIT_PORT, DSP_SS_PM));
+		mutex_unlock(&maxfifo_info->maxfifo_mtx);
 	}
 	return ret;
+
 }
 
-static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR,
-		   _show_sysfs_enable, _store_sysfs_enable);
+static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR, _show_sysfs_enable, _store_sysfs_enable);
 static DEVICE_ATTR(state, S_IRUGO, _show_sysfs_state, NULL);
 
 static struct attribute *tng_maxfifo_attrs[] = {
@@ -439,8 +456,8 @@ static struct attribute_group tng_maxfifo_attr_group = {
 	.attrs = tng_maxfifo_attrs
 };
 
-static bool maxfifo_create_sysfs_entries(struct drm_device * dev)
-{
+
+static inline bool _maxfifo_create_sysfs_entries(struct drm_device * dev) {
 	int ret;
 
 	ret = sysfs_create_group(&dev->primary->kdev.kobj,
@@ -450,51 +467,16 @@ static bool maxfifo_create_sysfs_entries(struct drm_device * dev)
 	return ret;
 }
 
-int dc_maxfifo_init(struct drm_device *dev)
-{
-	struct dc_maxfifo *maxfifo_info;
-	struct drm_psb_private *dev_priv = dev->dev_private;
-
-	/* don't support s0i1-disp with command mode panel */
-	if (is_panel_vid_or_cmd(dev) == MDFLD_DSI_ENCODER_DBI)
-		return 0;
-
-	dev_priv->dc_maxfifo_info =
-		kzalloc(sizeof(struct dc_maxfifo), GFP_KERNEL);
-
-	if (!dev_priv->dc_maxfifo_info) {
-		DRM_ERROR("No memory\n");
-		return -ENOMEM;
-	}
-	maxfifo_info = dev_priv->dc_maxfifo_info;
-
-	spin_lock_init(&maxfifo_info->lock);
-
-	maxfifo_info->maxfifo_current_state = -1;
-	maxfifo_info->req_mode = -1;
-	maxfifo_info->dev_drm = dev;
-	maxfifo_info->regs_to_set = TNG_MAXFIFO_REGS_TO_SET_DEFAULT;
-	maxfifo_info->s0i1_disp_state = S0i1_DISP_STATE_NOT_READY;
-	maxfifo_info->jiffies_record = 0;
-
-	INIT_WORK(&maxfifo_info->repeat_frame_interrupt_work,
-			maxfifo_send_hwc_event_work);
-
-	maxfifo_info->repeat_frame_interrupt_on = false;
-	maxfifo_timer_init(dev);
-
-	/*Initialize the sysfs entries*/
-	maxfifo_create_sysfs_entries(dev);
-
-	return 0;
-}
-
 int dc_maxfifo_uninit(struct drm_device *dev)
 {
-	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct drm_psb_private *dev_priv =
+		(struct drm_psb_private *)dev->dev_private;
 
 	if (!dev_priv->dc_maxfifo_info)
 		return true;
+
+	mutex_destroy(&((struct dc_maxfifo *)
+		(dev_priv->dc_maxfifo_info))->maxfifo_mtx);
 
 	kfree(dev_priv->dc_maxfifo_info);
 	return 0;

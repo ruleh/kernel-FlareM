@@ -75,8 +75,6 @@
 #include <asm/intel_scu_pmic.h>
 #include <asm/intel-mid.h>
 #include "pwr_mgmt.h"
-#include "sepapp.h"
-#include "hdcp_api.h"
 
 /* Implementation of the Moorefield specific PCI driver for receiving
  * Hotplug and other device status signals.
@@ -96,7 +94,7 @@ static hdmi_context_t *g_context = NULL;
 #define PS_MSIC_PCI_DEVICE_ID 0x11A6
 
 #define PS_MSIC_HPD_GPIO_PIN 16
-#define PS_MSIC_LS_EN_GPIO_PIN 177
+#define PS_MSIC_LS_EN_GPIO_PIN 67
 #define PS_MSIC_HPD_GPIO_PIN_NAME "HDMI_HPD"
 #define PS_MSIC_LS_EN_GPIO_PIN_NAME "HDMI_LS_EN"
 
@@ -183,17 +181,10 @@ otm_hdmi_ret_t ps_hdmi_pci_dev_init(void *context, struct pci_dev *pdev)
 				PS_MSIC_HPD_GPIO_PIN);
 	}
 
-	if (INTEL_MID_BOARD(2, PHONE, MOFD, MP, PRO) ||
-		INTEL_MID_BOARD(2, PHONE, MOFD, MP, ENG)) {
-		/* VV board uses GPIO pin 192 for Level shifter HDMI_LS_EN */
-		ctx->gpio_ls_en_pin = get_gpio_by_name(PS_MSIC_LS_EN_GPIO_PIN_NAME);
-		if (-1 == ctx->gpio_ls_en_pin) {
-			ctx->gpio_ls_en_pin = PS_MSIC_LS_EN_GPIO_PIN;
-			pr_debug("get_gpio_by_name failed! Use default pin %d\n",
-					PS_MSIC_LS_EN_GPIO_PIN);
-		}
-	} else {
-		/* PRh uses GPIO pin 177 for Level shifter HDMI_LS_EN */
+	ctx->gpio_ls_en_pin = get_gpio_by_name(PS_MSIC_LS_EN_GPIO_PIN_NAME);
+	if (-1 == ctx->gpio_ls_en_pin) {
+		pr_debug("get_gpio_by_name failed! Use default pin %d\n",
+				PS_MSIC_LS_EN_GPIO_PIN);
 		ctx->gpio_ls_en_pin = PS_MSIC_LS_EN_GPIO_PIN;
 	}
 
@@ -211,6 +202,11 @@ otm_hdmi_ret_t ps_hdmi_pci_dev_init(void *context, struct pci_dev *pdev)
 		goto exit;
 	}
 
+	if (gpio_direction_output(ctx->gpio_ls_en_pin, 0)) {
+		pr_err("%s: Failed to set GPIO %d as output\n",
+			 __func__, ctx->gpio_ls_en_pin);
+		goto exit;
+	}
 	/* Set the GPIO based on cable status */
 	__ps_gpio_configure_edid_read();
 exit:
@@ -269,14 +265,8 @@ bool ps_hdmi_enable_hpd(bool enable)
 	pr_debug("Entered %s: %s\n", __func__, enable ? "enable" : "disable");
 
 	/* see ShadyCove PMIC spec and board schema */
-	if (INTEL_MID_BOARD(2, PHONE, MOFD, MP, PRO) ||
-		INTEL_MID_BOARD(2, PHONE, MOFD, MP, ENG)){
-		/* VV board uses GPIO1 for CT_CP_HPD */
-		pin = 0x7f;
-	} else {
-		/* PRx uses GPIO0 for CT_CP_HPD */
-		pin = 0x7e;
-	}
+	/* PRx uses GPIO0 for CT_CP_HPD */
+	pin = 0x7e;
 
 	if (enable)
 		intel_scu_ipc_iowrite8(pin, 0x31);
@@ -285,7 +275,7 @@ bool ps_hdmi_enable_hpd(bool enable)
 	return true;
 }
 
-bool ps_hdmi_power_islands_on()
+bool ps_hdmi_power_islands_on(void)
 {
 	/* power on display island C to use overlay C and sprite D planes */
 	return ospm_power_using_hw_begin(
@@ -293,7 +283,7 @@ bool ps_hdmi_power_islands_on()
 			OSPM_UHB_FORCE_POWER_ON);
 }
 
-void ps_hdmi_power_islands_off()
+void ps_hdmi_power_islands_off(void)
 {
 	ospm_power_using_hw_end(
 		OSPM_DISPLAY_HDMI | OSPM_DISPLAY_B);
@@ -345,15 +335,8 @@ bool ps_hdmi_get_cable_status(void *context)
  */
 void ps_hdmi_update_security_hdmi_hdcp_status(bool hdcp, bool cable)
 {
-	uint8_t status = 0;
-	if (cable)
-		status |= 1 << 0;
-	if (hdcp)
-		status |= 1 << 1;
-
-	uint8_t bksv[5];
-	otm_hdmi_hdcp_get_bksv(bksv, 5);
-	sepapp_hdmi_status(status, bksv);
+	/* Note: do nothing since not clear if mrfld needs this or not */
+	return;
 }
 
 /**

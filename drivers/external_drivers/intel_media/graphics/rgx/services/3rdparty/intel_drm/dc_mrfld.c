@@ -34,8 +34,9 @@
 #include "dc_mrfld.h"
 #include "pwr_mgmt.h"
 #include "psb_drv.h"
+#ifndef ENABLE_HW_REPEAT_FRAME
 #include "dc_maxfifo.h"
-#include "mdfld_dsi_output.h"
+#endif
 
 #if !defined(SUPPORT_DRM)
 #error "SUPPORT_DRM must be set"
@@ -58,6 +59,11 @@ static DC_MRFLD_DEVICE *gpsDevice;
 /* Timeout for Flip Watchdog */
 #define FLIP_TIMEOUT (HZ/4)
 
+/* IED Clean-up Handling */
+extern uint32_t g_ied_ref;
+extern uint32_t g_ied_force_clean;
+extern struct mutex g_ied_mutex;
+
 struct power_off_req {
 	struct delayed_work work;
 	struct plane_state *pstate;
@@ -72,6 +78,14 @@ static IMG_PIXFMT DC_MRFLD_Supported_PixelFormats[] = {
 	IMG_PIXFMT_YUV420_2PLANE,
 };
 
+#if 0
+static uint32_t DC_MRFLD_PixelFormat_Mapping[] = {
+	[IMG_PIXFMT_B5G6R5_UNORM] = (0x5 << 26),
+	[IMG_PIXFMT_B8G8R8A8_UNORM] = (0x6 << 26),
+};
+#endif
+
+#ifdef CONFIG_SUPPORT_MIPI
 static uint32_t DC_ExtraPowerIslands[DC_PLANE_MAX][MAX_PLANE_INDEX] = {
 	{ 0,              0,              0},
 #ifdef CONFIG_MOOREFIELD
@@ -82,8 +96,14 @@ static uint32_t DC_ExtraPowerIslands[DC_PLANE_MAX][MAX_PLANE_INDEX] = {
 	{ 0,              OSPM_DISPLAY_C, 0},
 	{ 0,              0,              0},
 };
-
-static uint32_t DC_PrimaryWAOnPipes[MAX_PIPE_NUM] = {0, 0, 0};
+#else
+static uint32_t DC_ExtraPowerIslands[DC_PLANE_MAX][MAX_PLANE_INDEX] = {
+	{ 0,              0,              0},
+	{ OSPM_DISPLAY_A, 0,              0},
+	{ OSPM_DISPLAY_A, OSPM_DISPLAY_C, 0},
+	{ 0,              0,              0},
+};
+#endif
 
 static inline IMG_UINT32 _Align_To(IMG_UINT32 ulValue,
 				IMG_UINT32 ulAlignment)
@@ -129,39 +149,6 @@ static IMG_BOOL _Is_Valid_DC_Buffer(DC_BUFFER_IMPORT_INFO *psBufferInfo)
 }
 #endif /* if KEEP_UNUSED_CODE */
 
-static void
-pin_gtt_mapping(struct flip_plane *plane)
-{
-	DC_MRFLD_BUFFER *psBuffer = plane->flip_buf;
-	IMG_UINT64 key;
-
-	if (!psBuffer || psBuffer->eSource != DCMrfldEX_BUFFER_SOURCE_IMPORT) {
-		return;
-	}
-
-	key = psBuffer->sContext[0].gtt_key;
-
-	DCCBgetGttMapping(gpsDevice->psDrmDevice, psBuffer->ui32OwnerTaskID,
-			  (unsigned long)key, NULL);
-}
-
-static void
-unpin_gtt_mapping(struct flip_plane *plane)
-{
-	DC_MRFLD_BUFFER *psBuffer = plane->flip_buf;
-	IMG_UINT64 key;
-
-	if (!psBuffer || psBuffer->eSource != DCMrfldEX_BUFFER_SOURCE_IMPORT) {
-		return;
-	}
-
-	key = psBuffer->sContext[0].gtt_key;
-
-	DCCBputGttMapping(gpsDevice->psDrmDevice, psBuffer->ui32OwnerTaskID,
-			  (unsigned long)key);
-}
-
-
 
 static IMG_BOOL _Is_Task_KThread(void)
 {
@@ -187,11 +174,6 @@ static void _Update_PlanePipeMapping(DC_MRFLD_DEVICE *psDevice,
 }
 
 #if 0
-static uint32_t DC_MRFLD_PixelFormat_Mapping[] = {
-	[IMG_PIXFMT_B5G6R5_UNORM] = (0x5 << 26),
-	[IMG_PIXFMT_B8G8R8A8_UNORM] = (0x6 << 26),
-};
-
 static IMG_BOOL _Enable_ExtraPowerIslands(DC_MRFLD_DEVICE *psDevice,
 					IMG_UINT32 ui32ExtraPowerIslands)
 {
@@ -339,7 +321,6 @@ static void free_flip(DC_MRFLD_FLIP *psFlip)
 		list_for_each_entry_safe(plane, tmp,
 				&psFlip->asPipeInfo[i].flip_planes, list) {
 			list_del(&plane->list);
-			unpin_gtt_mapping(plane);
 			kfree(plane);
 		}
 	}
@@ -362,47 +343,10 @@ static void disable_plane(struct plane_state *pstate)
 	int index = pstate->index;
 	int pipe = pstate->attached_pipe;
 	u32 ctx = 0;
-	int i, j, planes = 0;
 	struct drm_psb_private *dev_priv = gpsDevice->psDrmDevice->dev_private;
-	struct plane_state *tmp;
 
 	DRM_DEBUG("disable plane (%d %d)\n", type, index);
 
-	/* NOTE: pipe without active planes will hang */
-
-	/* we don't need this check in command mode because hwc do it */
-	if (is_panel_vid_or_cmd(gpsDevice->psDrmDevice) == MDFLD_DSI_ENCODER_DBI)
-		goto plane_disable;
-
-	for (i = 1; i < DC_PLANE_MAX; i++) {
-		for (j = 0; j < MAX_PLANE_INDEX; j++) {
-			tmp = &gpsDevice->plane_states[i][j];
-			if (tmp->attached_pipe != pipe)
-				continue;
-			if (tmp->active)
-				planes++;
-			if (planes > 1)
-				goto plane_disable;
-		}
-	}
-
-	if (planes < 2) {
-		/* attached pipe is invalied on first power on, use index instead */
-		if (pipe == -1) {
-			if (type != DC_PRIMARY_PLANE) {
-				DRM_ERROR("attached pipe is invalid, but plane type[%d] isn't primary!", type);
-				return;
-			}
-			pipe = index;
-		}
-		DCCBEnablePrimaryWA(gpsDevice->psDrmDevice, pipe);
-		DC_PrimaryWAOnPipes[pipe] = 1;
-		/* last one is primary plane, skip disable*/
-		if (type == DC_PRIMARY_PLANE)
-			goto power_off;
-	}
-
-plane_disable:
 	switch (type) {
 	case DC_SPRITE_PLANE:
 		DCCBSpriteEnable(gpsDevice->psDrmDevice, ctx, index, 0);
@@ -423,7 +367,6 @@ plane_disable:
 		return;
 	}
 
-power_off:
 	{
 		struct power_off_req *req = kzalloc(sizeof(*req), GFP_KERNEL);
 
@@ -450,15 +393,7 @@ static IMG_BOOL enable_plane(struct flip_plane *plane)
 {
 	int type = plane->type;
 	int index = plane->index;
-	int pipe = plane->attached_pipe;
 	struct plane_state *pstate = &gpsDevice->plane_states[type][index];
-
-	/* Disable primary plane WA on this pipe */
-	if (DC_PrimaryWAOnPipes[pipe]) {
-		if (type != DC_PRIMARY_PLANE)
-			DCCBPrimaryEnable(gpsDevice->psDrmDevice, 0, index, 0);
-		DC_PrimaryWAOnPipes[pipe] = 0;
-	}
 
 	if (pstate->powered_off && pstate->extra_power_island) {
 		DRM_DEBUG("power on island %#x for plane (%d %d)\n",
@@ -477,7 +412,6 @@ static IMG_BOOL enable_plane(struct flip_plane *plane)
 	pstate->disabled = false;
 	pstate->flip_active = true;
 	pstate->attached_pipe = plane->attached_pipe;
-
 	return IMG_TRUE;
 }
 
@@ -524,6 +458,35 @@ static bool disable_unused_planes(int pipe)
 	return ret;
 }
 
+static void disable_ied_session(struct drm_device *dev)
+{
+	/* Make sure overlay planes are in-active prior to turning off IED */
+	if (g_ied_force_clean) {
+		struct plane_state *oa_state =
+			&gpsDevice->plane_states[DC_OVERLAY_PLANE][0];
+		struct plane_state *oc_state =
+			&gpsDevice->plane_states[DC_OVERLAY_PLANE][1];
+		uint32_t ret = 0;
+		if ((oa_state->active == false) &&
+			(oc_state->active == false)) {
+			DRM_INFO("%s: ied_ref: %d\n", __func__, g_ied_ref);
+			mutex_lock(&g_ied_mutex);
+			while (g_ied_ref) {
+				DRM_INFO("disable_ied_session - ied_ref: %d\n",
+						g_ied_ref);
+				ret = sepapp_drm_playback(false);
+				if (ret) {
+					DRM_ERROR("IED Clean-up \
+						Failed: 0x%x\n", ret);
+					break;
+				}
+				g_ied_ref--;
+			}
+			g_ied_force_clean = false;
+			mutex_unlock(&g_ied_mutex);
+		}
+	}
+}
 static void free_flip_states_on_pipe(struct drm_device *psDrmDev, int pipe)
 {
 	struct list_head *psFlipQueue;
@@ -559,6 +522,8 @@ static void free_flip_states_on_pipe(struct drm_device *psDrmDev, int pipe)
 			psFlip = NULL;
 		}
 	}
+
+	return;
 }
 
 static void timer_flip_handler(struct work_struct *work)
@@ -570,6 +535,7 @@ static void timer_flip_handler(struct work_struct *work)
 	bool bHasUpdatedFlip[MAX_PIPE_NUM] = { false };
 	bool bHasDisplayedFlip[MAX_PIPE_NUM] = { false };
 	bool bHasPendingCommand[MAX_PIPE_NUM] = { false };
+	struct drm_device *dev;
 
 	if (!gpsDevice)
 		return;
@@ -598,6 +564,9 @@ static void timer_flip_handler(struct work_struct *work)
 
 		if (bHasUpdatedFlip[iPipe]) {
 			DRM_INFO("flip timer triggered, maybe vsync lost on pipe%d!\n", iPipe);
+			dev = gpsDevice->psDrmDevice;
+			if (dev != NULL)
+				DCCBDumpPipeStatus(dev, iPipe);
 		} else if (bHasDisplayedFlip[iPipe] && bHasPendingCommand[iPipe]) {
 			DRM_INFO("flip timer triggered, scp cmd pending on pipe%d!\n", iPipe);
 		}
@@ -612,6 +581,8 @@ static void timer_flip_handler(struct work_struct *work)
 	}
 
 	mutex_unlock(&gpsDevice->sFlipQueueLock);
+
+	return;
 }
 
 static void _Flip_Timer_Fn(unsigned long arg)
@@ -621,50 +592,6 @@ static void _Flip_Timer_Fn(unsigned long arg)
         schedule_work(&psDevice->flip_retire_work);
 }
 
-static IMG_BOOL need_exit_maxfifo_mode(DC_MRFLD_FLIP *psFlip)
-{
-	if (hdmi_state)
-		return true;
-
-	/* any of sprite D E F flip */
-	if (psFlip->uiSpriteFlip)
-		return true;
-
-	/* primary B flip */
-	if (psFlip->uiPrimaryFlip & ~1)
-		return true;
-
-	/* overlay C flip */
-	if (psFlip->uiOverlayFlip & ~1)
-		return true;
-
-	return false;
-}
-
-static int get_maxfifo_s0i1_mode(DC_MRFLD_FLIP *psFlip)
-{
-	bool overlay_a_only;
-	bool primary_a_only;
-	int mode = -1;
-
-	if (need_exit_maxfifo_mode(psFlip))
-		return -1;
-
-	/* get maxfifo entry mode for different flip combinations */
-	primary_a_only = (psFlip->uiPrimaryFlip == 1);
-	overlay_a_only = (psFlip->uiOverlayFlip == 1);
-
-	if (primary_a_only && !overlay_a_only)
-		mode = 0x0;
-	else if (primary_a_only && overlay_a_only)
-		mode = 0x1;
-	else if (!primary_a_only && overlay_a_only)
-		mode = 0x02;
-
-	PSB_DEBUG_MAXFIFO("can enter maxfifo mode: %d\n", mode);
-	return mode;
-}
-
 static IMG_BOOL _Do_Flip(DC_MRFLD_FLIP *psFlip, int iPipe)
 {
 	struct intel_dc_plane_zorder *zorder = NULL;
@@ -672,7 +599,6 @@ static IMG_BOOL _Do_Flip(DC_MRFLD_FLIP *psFlip, int iPipe)
 	struct flip_plane *plane;
 	IMG_UINT32 uiNumBuffers;
 	IMG_BOOL bUpdated;
-	int maxfifo_state;
 	unsigned long flags;
 
 	if (!gpsDevice || !psFlip) {
@@ -728,9 +654,6 @@ static IMG_BOOL _Do_Flip(DC_MRFLD_FLIP *psFlip, int iPipe)
 		enable_plane(plane);
 	}
 
-	if (need_exit_maxfifo_mode(psFlip))
-		DCCBExitMaxfifoMode(gpsDevice->psDrmDevice);
-
 	/* Delay the Flip if we are close the Vblank interval since we
 	 * do not want to update plane registers during the vblank period
 	 */
@@ -779,6 +702,8 @@ static IMG_BOOL _Do_Flip(DC_MRFLD_FLIP *psFlip, int iPipe)
 	if (zorder)
 		_Setup_ZOrder(gpsDevice, zorder, iPipe);
 
+	disable_ied_session(gpsDevice->psDrmDevice);
+
 	disable_unused_planes(iPipe);
 
 	psFlip->eFlipStates[iPipe] = DC_MRFLD_FLIP_DC_UPDATED;
@@ -790,21 +715,11 @@ static IMG_BOOL _Do_Flip(DC_MRFLD_FLIP *psFlip, int iPipe)
 
 	bUpdated = IMG_TRUE;
 
-	/*
-	 * Check if we can enter maxfifo mode.
-	 * if yes, send the maxfifo state to enter maxfifo mode.
-	 * Exit maxfifo is handled before we do flip.
-	 */
-	maxfifo_state = get_maxfifo_s0i1_mode(psFlip);
-
-	if (maxfifo_state != -1)
-		if (0 == DCCBEnterMaxfifoMode(gpsDevice->psDrmDevice, maxfifo_state))
-			goto err_out;
-
+#ifndef ENABLE_HW_REPEAT_FRAME
 	/* maxfifo is only enabled in mipi only mode */
 	if (iPipe == DC_PIPE_A && !hdmi_state)
 		maxfifo_timer_start(gpsDevice->psDrmDevice);
-
+#endif
 err_out:
 	power_island_put(psFlip->uiPowerIslands);
 	return bUpdated;
@@ -818,7 +733,7 @@ static DC_MRFLD_FLIP *_Next_Queued_Flip(int iPipe)
 
 	if (iPipe != DC_PIPE_A && iPipe != DC_PIPE_B) {
 		DRM_ERROR("%s: Invalid pipe %d\n", __func__, iPipe);
-		return IMG_NULL;
+		return NULL;
 	}
 
 	psFlipQueue = &gpsDevice->sFlipQueues[iPipe];
@@ -920,17 +835,14 @@ static void _Dispatch_Flip(DC_MRFLD_FLIP *psFlip)
 				/*Flip sprite context*/
 				index = psSurfCustom->ctx.sp_ctx.index;
 				pipe = psSurfCustom->ctx.sp_ctx.pipe;
-				psFlip->uiSpriteFlip |= 1 << index;
 				break;
 			case DC_PRIMARY_PLANE:
 				index = psSurfCustom->ctx.prim_ctx.index;
 				pipe = psSurfCustom->ctx.prim_ctx.pipe;
-				psFlip->uiPrimaryFlip |= 1 << index;
 				break;
 			case DC_OVERLAY_PLANE:
 				index = psSurfCustom->ctx.ov_ctx.index;
 				pipe = psSurfCustom->ctx.ov_ctx.pipe;
-				psFlip->uiOverlayFlip |= 1 << index;
 				break;
 			case DC_CURSOR_PLANE:
 				index = psSurfCustom->ctx.cs_ctx.index;
@@ -959,8 +871,6 @@ static void _Dispatch_Flip(DC_MRFLD_FLIP *psFlip)
 			flip_plane->attached_pipe = pipe;
 			flip_plane->flip_buf = pasBuffers[i];
 			flip_plane->flip_ctx = psSurfCustom;
-
-			pin_gtt_mapping(flip_plane);
 
 			list_add_tail(&flip_plane->list,
 				      &psFlip->asPipeInfo[pipe].flip_planes);
@@ -1043,10 +953,8 @@ static void _Dispatch_Flip(DC_MRFLD_FLIP *psFlip)
 		psFlip = NULL;
 	}
 
-	if (send_wms && psFlip) {
-		/*turn on required power islands*/
-		if (!power_island_get(OSPM_DISPLAY_A))
-			return;
+#ifdef CONFIG_SUPPORT_MIPI
+	if (send_wms) {
 
 		/* Ensure that *psFlip is not freed while lock is not held. */
 		if (psFlip)
@@ -1068,8 +976,8 @@ static void _Dispatch_Flip(DC_MRFLD_FLIP *psFlip)
 		if (psFlip)
 			psFlip->uiVblankCounters[DC_PIPE_A] =
 				drm_vblank_count(gpsDevice->psDrmDevice, DC_PIPE_A);
-		power_island_put(OSPM_DISPLAY_A);
 	}
+#endif
 
 	mutex_unlock(&gpsDevice->sFlipQueueLock);
 }
@@ -1243,7 +1151,7 @@ static int _Vsync_ISR(struct drm_device *psDrmDev, int iPipe)
 
 /*----------------------------------------------------------------------------*/
 
-static IMG_VOID DC_MRFLD_GetInfo(IMG_HANDLE hDeviceData,
+static void DC_MRFLD_GetInfo(IMG_HANDLE hDeviceData,
 				DC_DISPLAY_INFO *psDisplayInfo)
 {
 	DC_MRFLD_DEVICE *psDevice = (DC_MRFLD_DEVICE *)hDeviceData;
@@ -1365,7 +1273,7 @@ static PVRSRV_ERROR DC_MRFLD_BufferSystemAcquire(IMG_HANDLE hDeviceData,
 	return PVRSRV_OK;
 }
 
-static IMG_VOID DC_MRFLD_BufferSystemRelease(IMG_HANDLE hSystemBuffer)
+static void DC_MRFLD_BufferSystemRelease(IMG_HANDLE hSystemBuffer)
 {
 	/*TODO: do something here*/
 }
@@ -1429,7 +1337,7 @@ static PVRSRV_ERROR DC_MRFLD_ContextConfigureCheck(
 			continue;
 		}
 		psBuffer = OSAllocMem(sizeof(DC_MRFLD_BUFFER));
-		if (psBuffer == IMG_NULL) {
+		if (psBuffer == NULL) {
 			for (j = 0; j < i; j++) {
 				if (ahBuffers[j]) {
 					OSFreeMem(ahBuffers[j]);
@@ -1450,7 +1358,7 @@ static PVRSRV_ERROR DC_MRFLD_ContextConfigureCheck(
 		}
 
 		/*post flip*/
-		if (!pasSurfAttrib[i].ui64Custom) {
+		if (!pasSurfAttrib[i].ui32Custom) {
 			psBuffer->eFlipOp = DC_MRFLD_FLIP_SURFACE;
 			continue;
 		}
@@ -1466,8 +1374,9 @@ static PVRSRV_ERROR DC_MRFLD_ContextConfigureCheck(
 
 		/*copy the context from userspace*/
 		err = copy_from_user(psSurfCustom,
-				(void *)(pasSurfAttrib[i].ui64Custom),
-				sizeof(DC_MRFLD_SURF_CUSTOM));
+				     (void *)(uintptr_t)
+				     pasSurfAttrib[i].ui32Custom,
+				     sizeof(DC_MRFLD_SURF_CUSTOM));
 		if (err) {
 			DRM_ERROR("Failed to copy plane context\n");
 			continue;
@@ -1479,7 +1388,7 @@ static PVRSRV_ERROR DC_MRFLD_ContextConfigureCheck(
 	return PVRSRV_OK;
 }
 
-static IMG_VOID DC_MRFLD_ContextConfigure(IMG_HANDLE hDisplayContext,
+static void DC_MRFLD_ContextConfigure(IMG_HANDLE hDisplayContext,
 				IMG_UINT32 ui32PipeCount,
 				PVRSRV_SURFACE_CONFIG_INFO *pasSurfAttrib,
 				IMG_HANDLE *ahBuffers,
@@ -1491,9 +1400,7 @@ static IMG_VOID DC_MRFLD_ContextConfigure(IMG_HANDLE hDisplayContext,
 	if (!ui32PipeCount) {
 		/* Called from DCDisplayContextDestroy()
 		 * Retire the current config  */
-		mutex_lock(&gpsDevice->sFlipQueueLock);
 		DCDisplayConfigurationRetired(hConfigData);
-		mutex_unlock(&gpsDevice->sFlipQueueLock);
 		return;
 	}
 
@@ -1501,7 +1408,7 @@ static IMG_VOID DC_MRFLD_ContextConfigure(IMG_HANDLE hDisplayContext,
 	_Queue_Flip(hConfigData, ahBuffers, ui32PipeCount, ui32DisplayPeriod);
 }
 
-static IMG_VOID DC_MRFLD_ContextDestroy(IMG_HANDLE hDisplayContext)
+static void DC_MRFLD_ContextDestroy(IMG_HANDLE hDisplayContext)
 {
 	DC_MRFLD_DISPLAY_CONTEXT *psDisplayContext =
 		(DC_MRFLD_DISPLAY_CONTEXT *)hDisplayContext;
@@ -1574,7 +1481,7 @@ static PVRSRV_ERROR DC_MRFLD_BufferAlloc(IMG_HANDLE hDisplayContext,
 	 * IMG uses pgprot_noncached(PAGE_KERNEL)
 	 */
 	psBuffer->sCPUVAddr = __vmalloc(psBuffer->ui32BufferSize,
-			GFP_KERNEL | __GFP_DMA32 | __GFP_ZERO,
+			GFP_KERNEL | __GFP_HIGHMEM | __GFP_ZERO,
 			 __pgprot((pgprot_val(PAGE_KERNEL) & ~_PAGE_CACHE_MASK)
 			| _PAGE_CACHE_WC));
 	/*FIXME: */
@@ -1619,11 +1526,11 @@ static PVRSRV_ERROR DC_MRFLD_BufferAlloc(IMG_HANDLE hDisplayContext,
 
 	/*map this buffer to gtt*/
 	DCCBgttMapMemory(psDrmDev,
-			 (unsigned long)psBuffer,
-			psBuffer->ui32OwnerTaskID,
-			psBuffer->psSysAddr,
-			ulPagesNumber,
-			(unsigned int *)&psBuffer->sDevVAddr.uiAddr);
+		(unsigned int)(uintptr_t)psBuffer,
+		psBuffer->ui32OwnerTaskID,
+		psBuffer->psSysAddr,
+		ulPagesNumber,
+		(unsigned int *)&psBuffer->sDevVAddr.uiAddr);
 
 	psBuffer->sDevVAddr.uiAddr <<= PAGE_SHIFT;
 
@@ -1702,7 +1609,7 @@ static PVRSRV_ERROR DC_MRFLD_BufferImport(IMG_HANDLE hDisplayContext,
 
 static PVRSRV_ERROR DC_MRFLD_BufferAcquire(IMG_HANDLE hBuffer,
 					IMG_DEV_PHYADDR *pasDevPAddr,
-					IMG_PVOID *ppvLinAddr)
+					void **ppvLinAddr)
 {
 	DC_MRFLD_BUFFER *psBuffer = (DC_MRFLD_BUFFER *)hBuffer;
 	IMG_UINT32 ulPages;
@@ -1724,12 +1631,12 @@ static PVRSRV_ERROR DC_MRFLD_BufferAcquire(IMG_HANDLE hBuffer,
 	return PVRSRV_OK;
 }
 
-static IMG_VOID DC_MRFLD_BufferRelease(IMG_HANDLE hBuffer)
+static void DC_MRFLD_BufferRelease(IMG_HANDLE hBuffer)
 {
 
 }
 
-static IMG_VOID DC_MRFLD_BufferFree(IMG_HANDLE hBuffer)
+static void DC_MRFLD_BufferFree(IMG_HANDLE hBuffer)
 {
 	DC_MRFLD_DISPLAY_CONTEXT *psDisplayContext;
 	DC_MRFLD_BUFFER *psBuffer = (DC_MRFLD_BUFFER *)hBuffer;
@@ -1758,8 +1665,8 @@ static IMG_VOID DC_MRFLD_BufferFree(IMG_HANDLE hBuffer)
 	 */
 	if (psBuffer->eSource == DCMrfldEX_BUFFER_SOURCE_ALLOC) {
 		/*make sure unmap this buffer from gtt*/
-		DCCBgttUnmapMemory(psDrmDev, (unsigned long)psBuffer,
-				psBuffer->ui32OwnerTaskID);
+		DCCBgttUnmapMemory(psDrmDev, (unsigned int)
+			(uintptr_t)psBuffer, psBuffer->ui32OwnerTaskID);
 		kfree(psBuffer->psSysAddr);
 		vfree(psBuffer->sCPUVAddr);
 	}
@@ -1780,7 +1687,7 @@ static PVRSRV_ERROR DC_MRFLD_BufferMap(IMG_HANDLE hBuffer)
 	return PVRSRV_OK;
 }
 
-static IMG_VOID DC_MRFLD_BufferUnmap(IMG_HANDLE hBuffer)
+static void DC_MRFLD_BufferUnmap(IMG_HANDLE hBuffer)
 {
 
 }
@@ -1791,9 +1698,9 @@ static DC_DEVICE_FUNCTIONS sDCFunctions = {
 	.pfnPanelQuery			= DC_MRFLD_PanelQuery,
 	.pfnFormatQuery			= DC_MRFLD_FormatQuery,
 	.pfnDimQuery			= DC_MRFLD_DimQuery,
-	.pfnSetBlank			= IMG_NULL,
-	.pfnSetVSyncReporting		= IMG_NULL,
-	.pfnLastVSyncQuery		= IMG_NULL,
+	.pfnSetBlank			= NULL,
+	.pfnSetVSyncReporting		= NULL,
+	.pfnLastVSyncQuery		= NULL,
 	.pfnContextCreate		= DC_MRFLD_ContextCreate,
 	.pfnContextDestroy		= DC_MRFLD_ContextDestroy,
 	.pfnContextConfigure		= DC_MRFLD_ContextConfigure,
@@ -1882,7 +1789,7 @@ static PVRSRV_ERROR _SystemBuffer_Init(DC_MRFLD_DEVICE *psDevice)
 	return PVRSRV_OK;
 }
 
-static IMG_VOID _SystemBuffer_Deinit(DC_MRFLD_DEVICE *psDevice)
+static void _SystemBuffer_Deinit(DC_MRFLD_DEVICE *psDevice)
 {
 	if (psDevice->psSystemBuffer) {
 		kfree(psDevice->psSystemBuffer->psSysAddr);
@@ -2117,23 +2024,10 @@ void DC_MRFLD_onPowerOff(uint32_t iPipe)
 			pstate = &gpsDevice->plane_states[i][j];
 
 			/* if already inactive or not on this pipe */
-			if (pstate->attached_pipe != iPipe)
+			if (!pstate->active || pstate->attached_pipe != iPipe)
 				continue;
 
-                        if (!pstate->active){
-                                if(i == DC_OVERLAY_PLANE)
-                                        DCCBOverlayWaitDisableDone(gpsDevice->psDrmDevice,j,iPipe);
-
-                                continue;
-                        }
-
-                        if(i == DC_OVERLAY_PLANE)
-                                DCCBOverlayWaitFlipDone(gpsDevice->psDrmDevice,j,iPipe);
-
 			disable_plane(pstate);
-
-                        if(i == DC_OVERLAY_PLANE)
-                                DCCBOverlayWaitDisableDone(gpsDevice->psDrmDevice,j,iPipe);
 
 			/* turn off extra power island here */
 			if (!pstate->powered_off &&
@@ -2191,6 +2085,9 @@ int DC_MRFLD_Enable_Plane(int type, int index, u32 ctx)
 {
 	int err = 0;
 	IMG_INT32 *ui32ActivePlanes;
+#if 0
+	IMG_UINT32 uiExtraPowerIslands = 0;
+#endif
 
 	if (type <= DC_UNKNOWN_PLANE || type >= DC_PLANE_MAX) {
 		DRM_ERROR("Invalid plane type %d\n", type);
@@ -2208,8 +2105,16 @@ int DC_MRFLD_Enable_Plane(int type, int index, u32 ctx)
 	ui32ActivePlanes = &gpsDevice->ui32ActivePlanes[type];
 
 	/* add to active planes*/
-	if (!(*ui32ActivePlanes & (1 << index)))
+	if (!(*ui32ActivePlanes & (1 << index))) {
 		*ui32ActivePlanes |= (1 << index);
+
+#if 0
+		/* power on extra power islands if required */
+		uiExtraPowerIslands = DC_ExtraPowerIslands[type][index];
+		_Enable_ExtraPowerIslands(gpsDevice,
+					uiExtraPowerIslands);
+#endif
+	}
 
 	mutex_unlock(&gpsDevice->sFlipQueueLock);
 
@@ -2236,6 +2141,7 @@ int DC_MRFLD_Disable_Plane(int type, int index, u32 ctx)
 {
 	int err = 0;
 	IMG_INT32 *ui32ActivePlanes;
+	IMG_UINT32 uiExtraPowerIslands = 0;
 
 	if (type <= DC_UNKNOWN_PLANE || type >= DC_PLANE_MAX) {
 		DRM_ERROR("Invalid plane type %d\n", type);
@@ -2265,12 +2171,35 @@ int DC_MRFLD_Disable_Plane(int type, int index, u32 ctx)
 	/* remove from active planes*/
 	if (!err && (*ui32ActivePlanes & (1 << index))) {
 		*ui32ActivePlanes &= ~(1 << index);
+
+		/* power off extra power islands if required */
+		uiExtraPowerIslands = DC_ExtraPowerIslands[type][index];
+#if 0
+		if (uiExtraPowerIslands) {
+			req = kzalloc(sizeof(*req), GFP_KERNEL);
+			if (!req) {
+				DRM_ERROR("fail to alloc power_off_req\n");
+				goto out_mapping;
+			}
+			INIT_DELAYED_WORK(&req->work, display_power_work);
+
+			req->power_off_islands = uiExtraPowerIslands;
+
+			queue_delayed_work(dev_priv->power_wq,
+					   &req->work, msecs_to_jiffies(32));
+		}
+	out_mapping:
+#endif
 		/* update plane pipe mapping */
 		_Update_PlanePipeMapping(gpsDevice, type, index, -1);
 	}
 
 	mutex_unlock(&gpsDevice->sFlipQueueLock);
 
+	if (type == DC_OVERLAY_PLANE && !err) {
+		/* avoid big lock as it is a blocking call */
+		// err = DCCBOverlayDisableAndWait(gpsDevice->psDrmDevice, ctx, index);
+	}
 	return err;
 }
 

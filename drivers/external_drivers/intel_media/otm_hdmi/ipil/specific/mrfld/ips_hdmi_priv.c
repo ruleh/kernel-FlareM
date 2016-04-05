@@ -520,6 +520,31 @@ static void __ips_hdmi_set_program_dpll(int n, int p1, int p2, int m1, int m2)
 }
 
 /**
+ * Description: gets dpll clocks
+ *
+ * @dev:	hdmi_device_t
+ * @dclk:	refresh rate dot clock in kHz of current mode
+ *
+ * Returns:	OTM_HDMI_SUCCESS on success
+ *		OTM_HDMI_ERR_INVAL on NULL input arguments
+ */
+otm_hdmi_ret_t	ips_hdmi_crtc_mode_get_program_dpll(hdmi_device_t *dev,
+							unsigned long dclk)
+{
+	int n, p1, p2, m1, m2;
+	uint32_t target_dclk;
+
+	pr_debug("enter %s\n", __func__);
+
+	if (__ips_hdmi_get_divider_selector(dclk,
+			&target_dclk, &m1, &m2, &n, &p1, &p2)) {
+		dev->clock_khz = 3840 * m1 * m2 / (p1 * p2);
+		return OTM_HDMI_SUCCESS;
+	} else
+		return OTM_HDMI_ERR_INVAL;
+}
+
+/**
  * Description: programs dpll clocks, enables dpll and waits
  *		till it locks with DSI PLL
  *
@@ -540,7 +565,7 @@ otm_hdmi_ret_t	ips_hdmi_crtc_mode_set_program_dpll(hdmi_device_t *dev,
 	if (__ips_hdmi_get_divider_selector(dclk,
 			&target_dclk, &m1, &m2, &n, &p1, &p2)) {
 		__ips_hdmi_set_program_dpll(n, p1, p2, m1, m2);
-		dev->clock_khz = target_dclk;
+		dev->clock_khz = 3840 * m1 * m2 / (p1 * p2);
 		return OTM_HDMI_SUCCESS;
 	} else
 		return OTM_HDMI_ERR_INVAL;
@@ -618,7 +643,8 @@ void ips_hdmi_restore_and_enable_display(hdmi_device_t *dev)
 	hdmi_write32(IPS_VBLANK_B, dev->reg_state.saveVBLANK_B);
 	hdmi_write32(IPS_VSYNC_B, dev->reg_state.saveVSYNC_B);
 	hdmi_write32(IPS_PIPEBSRC, dev->reg_state.savePIPEBSRC);
-	hdmi_write32(IPS_DSPBSTAT, dev->reg_state.saveDSPBSTATUS);
+	/* Don't restore pipestat as it will override register set during DPMS on */
+	/* hdmi_write32(IPS_DSPBSTAT, dev->reg_state.saveDSPBSTATUS);*/
 
 	/*set up the plane*/
 	hdmi_write32(IPS_DSPBSTRIDE, dev->reg_state.saveDSPBSTRIDE);

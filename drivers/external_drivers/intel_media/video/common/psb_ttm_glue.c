@@ -43,7 +43,15 @@
 #include "vsp.h"
 #endif
 
+/* IED Clean-up Handling */
+extern uint32_t g_ied_ref;
+extern uint32_t g_ied_force_clean;
+extern struct mutex g_ied_mutex;
+extern int sepapp_drm_playback(bool ied_status);
 static int ied_enabled;
+
+static void ann_rm_workaround_ctx(struct drm_psb_private *dev_priv, uint64_t ctx_type);
+static void ann_add_workaround_ctx(struct drm_psb_private *dev_priv, uint64_t ctx_type);
 
 #ifdef MERRIFIELD
 struct psb_fpriv *psb_fpriv(struct drm_file *file_priv)
@@ -249,8 +257,7 @@ int psb_getpageaddrs_ioctl(struct drm_device *dev, void *data,
 		p[i] = (unsigned long)page_to_phys(tt_pages[i]);
 
 	if (copy_to_user((void __user *)((unsigned long)arg->page_addrs),
-		     p, sizeof(unsigned long) * num_pages)) {
-		printk(KERN_ERR "copy to user failed.\n");
+			 p, sizeof(unsigned long) * num_pages)) {
 		return -EFAULT;
 	}
 
@@ -266,6 +273,7 @@ void psb_remove_videoctx(struct drm_psb_private *dev_priv, struct file *filp)
 	struct msvdx_private *msvdx_priv = dev_priv->msvdx_private;
 	int ctx_type;
 	unsigned long irq_flags;
+
 	/* iterate to query all ctx to if there is DRM running*/
 	ied_enabled = 0;
 
@@ -282,10 +290,12 @@ void psb_remove_videoctx(struct drm_psb_private *dev_priv, struct file *filp)
 	spin_unlock_irqrestore(&dev_priv->video_ctx_lock, irq_flags);
 
 	if (found_ctx) {
-		PSB_DEBUG_PM("Video:remove context profile %lld,"
-				  " entrypoint %lld\n",
+		PSB_DEBUG_PM("Video:remove context profile %llu,"
+				  " entrypoint %llu\n",
 				  (found_ctx->ctx_type >> 8) & 0xff,
 				  (found_ctx->ctx_type & 0xff));
+		if (IS_ANN(dev))
+			ann_rm_workaround_ctx(dev_priv, found_ctx->ctx_type);
 #ifndef CONFIG_DRM_VXD_BYT
 		/* if current ctx points to it, set to NULL */
 		if ((VAEntrypointEncSlice ==
@@ -398,11 +408,14 @@ int psb_video_getparam(struct drm_device *dev, void *data,
 	uint64_t ctx_type = 0;
 	struct psb_video_ctx *video_ctx = NULL;
 	struct msvdx_private *msvdx_priv = dev_priv->msvdx_private;
+	unsigned long irq_flags;
+	struct file *filp = file_priv->filp;
 #if (!defined(MERRIFIELD) && !defined(CONFIG_DRM_VXD_BYT))
 	uint32_t imr_info[2];
 #endif
-	unsigned long irq_flags;
-	struct file *filp = file_priv->filp;
+#ifdef SUPPORT_VSP
+	struct vsp_private *vsp_priv = dev_priv->vsp_private;
+#endif
 #ifdef CONFIG_VIDEO_MRFLD
 	struct ttm_object_file *tfile = psb_fpriv(file_priv)->tfile;
 	struct psb_msvdx_ec_ctx *ec_ctx = NULL;
@@ -445,6 +458,8 @@ int psb_video_getparam(struct drm_device *dev, void *data,
 		INIT_LIST_HEAD(&video_ctx->head);
 		video_ctx->ctx_type = ctx_type;
 		video_ctx->cur_sequence = 0xffffffff;
+		if (IS_ANN(dev))
+			ann_add_workaround_ctx(dev_priv, ctx_type);
 #ifdef CONFIG_SLICE_HEADER_PARSING
 		video_ctx->frame_end_seq = 0xffffffff;
 		if (ctx_type & VA_RT_FORMAT_PROTECTED) {
@@ -476,16 +491,46 @@ int psb_video_getparam(struct drm_device *dev, void *data,
 			if (ret)
 				break;
 
+			if (unlikely(vsp_priv->fw_loaded == 0)) {
+				ret = tng_securefw(dev, "vsp", "VSP", TNG_IMR11L_MSG_REGADDR);
+				if (ret != 0) {
+					DRM_ERROR("VSP: failed to init firmware\n");
+					break;
+				}
+			}
+            break;
 		}
 #endif
 #endif
-		PSB_DEBUG_INIT("Video:add ctx profile %lld, entry %lld.\n",
+		PSB_DEBUG_INIT("Video:add ctx profile 0x%llx, entry 0x%llx.\n",
 					((ctx_type >> 8) & 0xff),
 					(ctx_type & 0xff));
 		PSB_DEBUG_INIT("Video:add context protected 0x%llx.\n",
 					(ctx_type & VA_RT_FORMAT_PROTECTED));
 		if (ctx_type & VA_RT_FORMAT_PROTECTED)
 			ied_enabled = 1;
+		else if ((ctx_type & VAEntrypointVLD) &&
+				(ctx_type & PSB_SURFACE_UNAVAILABLE)) {
+			mutex_lock(&g_ied_mutex);
+			if (g_ied_ref > 0) {
+				DRM_INFO("Video: create context without surface, ied_ref: %d\n", g_ied_ref);
+			}
+			mutex_unlock(&g_ied_mutex);
+		}
+		else {
+			mutex_lock(&g_ied_mutex);
+			DRM_INFO("Video: ied_ref: %d\n", g_ied_ref);
+			while (g_ied_ref) {
+				ret = sepapp_drm_playback(false);
+				if (ret) {
+					DRM_ERROR("IED Clean-up \
+						Failed:0x%x\n", ret);
+					break;
+				}
+				g_ied_ref--;
+			}
+			mutex_unlock(&g_ied_mutex);
+		}
 		break;
 	case IMG_VIDEO_RM_CONTEXT:
 		psb_remove_videoctx(dev_priv, file_priv->filp);
@@ -499,7 +544,7 @@ int psb_video_getparam(struct drm_device *dev, void *data,
 		video_ctx = psb_find_videoctx(dev_priv, file_priv->filp);
 		if (video_ctx) {
 			PSB_DEBUG_GENERAL(
-				"Video: update video ctx old value 0x%08llx\n",
+				"Video: update video ctx old value 0x%llx\n",
 				video_ctx->ctx_type);
 			if (video_ctx->ctx_type != ctx_type) {
 #ifdef CONFIG_SLICE_HEADER_PARSING
@@ -509,16 +554,40 @@ int psb_video_getparam(struct drm_device *dev, void *data,
 					video_ctx->frame_boundary = 1;
 					video_ctx->frame_end_seq = 0xffffffff;
 					ied_enabled = 1;
+
+					mutex_lock(&g_ied_mutex);
+					DRM_INFO("Video: ied_ref: %d\n", g_ied_ref);
+					if (g_ied_ref == 0) {
+						ret = sepapp_drm_playback(true);
+						if (ret) {
+							DRM_ERROR("IED enable in update context failed:0x%x\n", ret);
+						}
+						g_ied_ref++;
+					}
+					mutex_unlock(&g_ied_mutex);
+				}
+				if (!(ctx_type & VA_RT_FORMAT_PROTECTED)) {
+					mutex_lock(&g_ied_mutex);
+					DRM_INFO("Video: ied_ref: %d\n", g_ied_ref);
+					while (g_ied_ref) {
+						ret = sepapp_drm_playback(false);
+						if (ret) {
+							DRM_ERROR("IED Clean-up failed:0x%x\n", ret);
+							break;
+						}
+						g_ied_ref--;
+					}
+					mutex_unlock(&g_ied_mutex);
 				}
 #endif
 			}
 			video_ctx->ctx_type = ctx_type;
 			PSB_DEBUG_GENERAL(
-				"Video: update video ctx new value 0x%08llx\n",
+				"Video: update video ctx new value 0x%llx\n",
 				video_ctx->ctx_type);
 		} else
 			PSB_DEBUG_GENERAL(
-				"Video:fail to find context profile %lld, entrypoint %lld",
+				"Video:fail to find context profile 0x%llx, entrypoint 0x%llx",
 				(ctx_type >> 8), (ctx_type & 0xff));
 		break;
 	case IMG_VIDEO_DECODE_STATUS:
@@ -673,10 +742,70 @@ int psb_video_getparam(struct drm_device *dev, void *data,
 	}
 
 	if (ret) {
-		DRM_ERROR("%s: failed to call sub-ioctl 0x%llx",
+		DRM_ERROR("%s: failed to call sub-ioctl 0x%llu",
 			__func__, arg->key);
 		return -EFAULT;
 	}
 
 	return 0;
+}
+
+/* SLC bug: there is green corruption for vc1 decode if width is not 64 aligned
+ * Recode the number of VC1 ctx whose width is not 64 aligned
+ */
+static void ann_add_workaround_ctx(struct drm_psb_private *dev_priv, uint64_t ctx_type)
+{
+
+	struct msvdx_private *msvdx_priv;
+	int profile = (ctx_type >> 8) & 0xff;
+
+	if (profile != VAProfileVC1Simple &&
+	    profile != VAProfileVC1Main &&
+	    profile != VAProfileVC1Advanced)
+		return;
+
+	if (unlikely(!dev_priv))
+		return;
+
+	msvdx_priv = dev_priv->msvdx_private;
+	if (unlikely(!msvdx_priv))
+		return;
+
+	PSB_DEBUG_GENERAL(
+	    "add vc1 ctx, ctx_type is 0x%llx\n",
+		ctx_type);
+
+	/* ctx_type >> 32 is width_in_mb */
+	if ((ctx_type >> 32) % 4) {
+		atomic_inc(&msvdx_priv->vc1_workaround_ctx);
+		PSB_DEBUG_GENERAL("add workaround ctx %p in ctx\n", msvdx_priv);
+	}
+}
+
+static void ann_rm_workaround_ctx(struct drm_psb_private *dev_priv, uint64_t ctx_type)
+{
+
+	struct msvdx_private *msvdx_priv;
+	int profile = (ctx_type >> 8) & 0xff;
+
+	if (profile != VAProfileVC1Simple &&
+	    profile != VAProfileVC1Main &&
+	    profile != VAProfileVC1Advanced)
+		return;
+
+	if (unlikely(!dev_priv))
+		return;
+
+	msvdx_priv = dev_priv->msvdx_private;
+	if (unlikely(!msvdx_priv))
+		return;
+
+	PSB_DEBUG_GENERAL(
+	    "rm vc1 ctx, ctx_type is 0x%llx\n",
+		ctx_type);
+	/* ctx_type >> 32 is width_in_mb */
+	if ((ctx_type >> 32) % 4) {
+		atomic_dec(&msvdx_priv->vc1_workaround_ctx);
+		PSB_DEBUG_GENERAL("dec workaround ctx %p in ctx\n", msvdx_priv);
+	}
 }

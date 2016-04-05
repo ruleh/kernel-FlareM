@@ -54,37 +54,6 @@ static struct hsu_port_cfg *hsu_port_func_cfg;
 
 static void serial_hsu_command(struct uart_hsu_port *up);
 
-/* called by modem ctrl*/
-void serial_hsu_set_lpm(bool enable)
-{
-       struct hsu_port_cfg *cfg = NULL;
-
-       if (phsu)
-       {
-               int i;
-               for(i=0;i<HSU_PORT_MAX;i++)
-                       if(phsu->configs[i])
-                       {
-                           if(phsu->configs[i]->type == modem_port)
-                           {
-                               cfg = phsu->configs[i];
-                               break;
-                           }
-                       }
-                       else
-                           return;
-
-              if(cfg == NULL)
-                       return;
-       }
-       else
-               return;
-
-       if (cfg->hw_set_lpm)
-               cfg->hw_set_lpm(1, enable);
-
-}
-
 int hsu_register_board_info(void *inf)
 {
 	hsu_port_func_cfg = inf;
@@ -675,14 +644,6 @@ void intel_dma_do_rx(struct uart_hsu_port *up, u32 int_sts)
 	int count;
 
 	trace_hsu_func_start(up->index, __func__);
-
-	if(!up->dma_inited)
-	{
-		dev_warn(up->dev, "%s DMA not init!\n", __func__);
-		trace_hsu_func_end(up->index, __func__, "notty");
-		return;
-	}
-
 	tty = tty_port_tty_get(&up->port.state->port);
 	if (!tty) {
 		trace_hsu_func_end(up->index, __func__, "notty");
@@ -2319,15 +2280,6 @@ static int serial_port_setup(struct uart_hsu_port *up,
 	spin_lock_init(&up->cl_lock);
 	set_bit(flag_cmd_off, &up->flags);
 
-	if (cfg->type == debug_port) {
-		serial_hsu_reg.cons = SERIAL_HSU_CONSOLE;
-		if (serial_hsu_reg.cons)
-			serial_hsu_reg.cons->index = index;
-		up->use_dma = 0;
-	} else
-		serial_hsu_reg.cons = NULL;
-	uart_add_one_port(&serial_hsu_reg, &up->port);
-
 	if (phsu->irq_port_and_dma) {
 		up->dma_irq = up->port.irq;
 		ret = request_irq(up->dma_irq, hsu_dma_irq, IRQF_SHARED,
@@ -2352,6 +2304,14 @@ static int serial_port_setup(struct uart_hsu_port *up,
 		}
 	}
 
+	if (cfg->type == debug_port) {
+		serial_hsu_reg.cons = SERIAL_HSU_CONSOLE;
+		if (serial_hsu_reg.cons)
+			serial_hsu_reg.cons->index = index;
+		up->use_dma = 0;
+	} else
+		serial_hsu_reg.cons = NULL;
+	uart_add_one_port(&serial_hsu_reg, &up->port);
 	return 0;
 }
 
@@ -2409,11 +2369,7 @@ struct uart_hsu_port *serial_hsu_port_setup(struct device *pdev, int port,
 		up->rxc = &phsu->chans[index * 2 + 1];
 		up->dma_ops = &intel_dma_ops;
 	} else {
-#ifdef CONFIG_LPSS_DMA
-		up->dma_ops = &lpss_dma_ops;
-#else
 		up->dma_ops = pdw_dma_ops;
-#endif
 	}
 
 	if (cfg->has_alt) {
@@ -2428,10 +2384,6 @@ struct uart_hsu_port *serial_hsu_port_setup(struct device *pdev, int port,
 	}
 
 	serial_port_setup(up, cfg);
-
-	if (up->dma_ops->setup)
-		up->dma_ops->setup(up);
-
 	phsu->port_num++;
 
 	return up;
@@ -2442,8 +2394,6 @@ void serial_hsu_port_free(struct uart_hsu_port *up)
 {
 	struct hsu_port_cfg *cfg = phsu->configs[up->index];
 
-	if (up->dma_ops->remove)
-		up->dma_ops->remove(up);
 	uart_remove_one_port(&serial_hsu_reg, &up->port);
 	free_irq(up->port.irq, up);
 	if (cfg->has_alt) {

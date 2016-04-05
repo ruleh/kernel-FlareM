@@ -226,19 +226,6 @@ enum VssStatus {
 	VssCorruptFramecontinue_VP8      = 0x7
 };
 
-enum VssWiDi_ComposeStatus {
-	VssInvalidFrameParameters = 1,
-	VssInitFailure,
-	VssReserved
-};
-
-enum BypassMode {
-    BP_NONE = 0, /*Full path to upscale yuv and belend with rgba*/
-    BP_BLEND, /* PAS Bypass A - upscale yuv and write yuv as output thereby bypassing blending*/
-    BP_UPSCALE, /* PAS Bypass B - blends the input yuv with rgba thereby bypassing upscaling*/
-    BP_YUV /* PAS Bypass C - discards yuv and does CSC on RGB adn writes to output*/
-};
-
 enum FrcResponseType {
 	VssOutputSurfaceFreeResponse = 0x0000F001,
 	VssOutputSurfaceCrcResponse  = 0x0000F002
@@ -670,13 +657,14 @@ enum VssGenCommandType {
  * WiDi Compose data structures
  ****************************/
 enum VssWiDi_ComposeCommandType {
-	VssWiDi_ComposeFrameCommand = 200,
-	VssWiDi_ComposeEndOfSequenceCommand,
-	VssWiDi_ComposeInit
+	VssWiDi_ComposeSetSequenceParametersCommand = 200,
+	VssWiDi_ComposeFrameCommand,
+	VssWiDi_ComposeEndOfSequenceCommand
 };
 
 enum VssWiDi_ComposeResponseType {
-	VssWiDi_ComposeFrameResponse = 250,
+	VssWiDi_ComposeSetSequenceParametersResponse = 250,
+	VssWiDi_ComposeFrameResponse,
 };
 
 enum VssWiDi_ColorFormat {
@@ -690,45 +678,62 @@ enum VssWiDi_ColorFormat {
  * WiDi Compose sequence parameter data structure.
  */
 struct VssWiDi_ComposeSequenceParameterBuffer {
-	/* Input RGB-CSC related */
+	unsigned int R_Buffer;
+	unsigned int G_Buffer;
+	unsigned int B_Buffer;
 	unsigned int RGBA_Buffer;
-	uint32_t RGB_Width;
-	uint32_t RGB_Height;
-	uint32_t RGBA_IN_Stride;
+	unsigned int Y_Buffer;
+	unsigned int UV_Buffer;
+	unsigned int U_Buffer;
+	unsigned int V_Buffer;
+	unsigned int A_Buffer;
+	int ActualWidth;
+	int ActualHeight;
+	int ProcessedWidth;
+	int ProcessedHeight;
+	int TotalMBCount;
+	int Stride;
+	/*Video related*/
+	int Video_IN_xsize;
+	int Video_IN_ysize;
+	int Video_IN_stride;
+	int Video_IN_yuv_format; 
 
-	/* Input YUV related */
 	unsigned int Video_IN_Y_Buffer;
 	unsigned int Video_IN_UV_Buffer;
-	uint32_t Video_IN_Y_stride;
+        unsigned int Video_IN_U_Buffer;
+	unsigned int Video_IN_V_Buffer;
+	int Video_OUT_xsize;
+	int Video_OUT_ysize;
+	int Video_OUT_stride;
+	int Video_OUT_yuv_format; 
 
-	/* Output YUV related */
 	unsigned int Video_OUT_Y_Buffer;
 	unsigned int Video_OUT_UV_Buffer;
-	uint32_t Video_OUT_xsize;
-	uint32_t Video_OUT_ysize;
-	uint32_t Video_OUT_Y_stride;
+	unsigned int Video_OUT_V_Buffer;
 
-	/* Scaling parameters */
-	uint32_t ROI_scaling_ip_width;
-	uint32_t ROI_scaling_ip_height;
-	uint32_t ROI_scaling_ip_x;
-	uint32_t ROI_scaling_ip_y;
-	uint32_t ROI_scaling_op_width;
-	uint32_t ROI_scaling_op_height;
-	uint32_t ROI_scaling_op_x;
-	uint32_t ROI_scaling_op_y;
-	/*expecting from driver for float reasons*/
-	uint32_t YUVscalefactor_dx;
-	uint32_t YUVscalefactor_dy;
+	unsigned int scaled_width;
+	unsigned int scaled_height;
+	unsigned int scalefactor_dx;
+	unsigned int scalefactor_dy;
 
-	/*Blending related params */
-	uint32_t Is_video_the_back_ground;
-	uint32_t RGBA_Format;
-	/*Bypass mode*/
-	uint32_t bypass_mode;
-	/* Tiling*/
-	uint32_t Is_input_tiled;
-	uint32_t Is_output_tiled;
+	/*Blending related params*/
+	int Is_Blending_Enabled;
+	int ROI_width;
+	int ROI_height;
+	int ROI_x1;
+	int ROI_y1;
+	int ROI_x2;
+	int ROI_y2;
+	int alpha1;
+	int alpha2;
+	int Is_video_the_back_ground;
+	int Is_source_1_image_available;
+	int Is_source_2_image_available;
+	int Is_alpha_channel_available;
+	int Video_TotalMBCount;
+	int CSC_FormatSelect; /* 0: YUV420NV12; 1: YUV444; */
+	int CSC_InputFormatSelect; // 0: RGB Planar; 1: RGBA Interleaved
 };
 
 #pragma pack()

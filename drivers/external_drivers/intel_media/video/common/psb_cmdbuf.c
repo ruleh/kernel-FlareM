@@ -836,8 +836,10 @@ static int psb_handle_copyback(struct drm_device *dev,
 			}
 
 			if (__copy_to_user(vbuf->user_val_arg,
-					   &arg, sizeof(arg)))
+					   &arg, sizeof(arg))) {
 				err = -EFAULT;
+				DRM_ERROR("call __copy_to_user() function error!\n");
+			}
 
 			if (arg.ret)
 				break;
@@ -861,27 +863,31 @@ int psb_cmdbuf_ioctl(struct drm_device *dev, void *data,
 #ifdef SUPPORT_VSP
 	struct vsp_private *vsp_priv = NULL;
 #endif
-#if defined(MERRIFIELD)
-	struct tng_topaz_private *topaz_priv = NULL;
-#endif
 	struct psb_video_ctx *pos = NULL;
 	struct psb_video_ctx *n = NULL;
 	struct psb_video_ctx *msvdx_ctx = NULL;
 	unsigned long irq_flags;
+#if defined(MERRIFIELD)
+	struct tng_topaz_private *topaz_priv;
+#endif
 	int engine, po_correct;
 	int found = 0;
 	struct psb_context *context = NULL;
 
 	if (dev_priv == NULL)
 		return -EINVAL;
-
 	mmu = dev_priv->mmu;
 	msvdx_priv = dev_priv->msvdx_private;
+
+#if defined(MERRIFIELD)
+	topaz_priv = dev_priv->topaz_private;
+#endif
+
 #ifdef SUPPORT_VSP
 	vsp_priv = dev_priv->vsp_private;
 #endif
+
 #if defined(MERRIFIELD)
-	topaz_priv = dev_priv->topaz_private;
 	if (drm_topaz_cmdpolicy != PSB_CMDPOLICY_PARALLEL) {
 		wait_event_interruptible(topaz_priv->cmd_wq, \
 			(atomic_read(&topaz_priv->cmd_wq_free) == 1));

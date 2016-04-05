@@ -415,7 +415,7 @@ bool power_island_get(u32 hw_island)
 		pm_ret = pm_runtime_get_sync(&g_ospm_data->dev->pdev->dev);
 		if (pm_ret < 0) {
 			ret = false;
-			PSB_DEBUG_PM("pm_runtime_get_sync failed %p.\n",
+			PSB_DEBUG_PM("pm_runtime_get_sync failed 0x%p.\n",
 				&g_ospm_data->dev->pdev->dev);
 			goto out_err;
 		}
@@ -471,6 +471,7 @@ bool power_island_put(u32 hw_island)
 		}
 	}
 
+/* out_err: */
 	/* Check to see if we need to suspend PCI */
 	if (!any_island_on()) {
 		PSB_DEBUG_PM("Suspending PCI\n");
@@ -857,7 +858,7 @@ void ospm_apm_power_down_vsp(struct drm_device *dev)
 	if (!any_island_on()) {
 		PSB_DEBUG_PM("Suspending PCI\n");
 		pm_qos_add_request(&dev_priv->s0ix_qos,
-			PM_QOS_CPU_DMA_LATENCY, CSTATE_EXIT_LATENCY_S0i1 - 1);
+				   PM_QOS_CPU_DMA_LATENCY, CSTATE_EXIT_LATENCY_S0i1 - 1);
 		pm_runtime_put(&g_ospm_data->dev->pdev->dev);
 		wake_unlock(&dev_priv->ospm_wake_lock);
 	}
@@ -870,12 +871,11 @@ out:
 
 int ospm_runtime_pm_allow(struct drm_device *dev)
 {
+	pm_runtime_allow(&dev->pdev->dev);
 	return 0;
 }
 
 void ospm_runtime_pm_forbid(struct drm_device *dev)
 {
-//	struct drm_psb_private *dev_priv = dev->dev_private;
-
-//	pm_runtime_forbid(&dev->pdev->dev);
+	pm_runtime_forbid(&dev->pdev->dev);
 }

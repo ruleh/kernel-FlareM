@@ -1066,7 +1066,6 @@ static char *ScuBoot_ErrorTypes[] = {
 	"Kernel WDT expired",
 	"SCU CHAABI watchdog expired",
 	"FabricError xml request reset",
-	"CHAABI WDT expired",
 };
 
 static char *ScuRuntime_ErrorTypes[] = {

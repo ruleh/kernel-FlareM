@@ -724,7 +724,7 @@ print_image_info(struct i2c_client *client, struct image_header *header,
 			header->product_id);
 	dev_info(&client->dev, "Img product info:       %#04x %#04x\n",
 			header->product_info[0], header->product_info[1]);
-	dev_info(&client->dev, "Got firmware, size: %d.\n", (int) fw_entry->size);
+	dev_info(&client->dev, "Got firmware, size: %zd.\n", fw_entry->size);
 }
 
 int rmi4_fw_update(struct rmi4_data *pdata,
@@ -749,7 +749,6 @@ int rmi4_fw_update(struct rmi4_data *pdata,
 	const struct rmi4_touch_calib *calib = pdata->board->calib;
 	const struct rmi4_platform_data *platformdata =
 		client->dev.platform_data;
-	u8 intr_status;
 
 	dev_info(&client->dev, "Enter %s.\n", __func__);
 #ifdef	DEBUG
@@ -829,16 +828,6 @@ int rmi4_fw_update(struct rmi4_data *pdata,
 	if (header.config_size)
 		data.config_data = fw_entry->data + F34_FW_IMAGE_OFFSET +
 			header.image_size;
-
-	/* Clear interrupts */
-	retval = rmi4_i2c_block_read(data.rmi4_dev,
-		data.f01_pdt->data_base_addr + 1,
-		&intr_status,
-		1);
-	if (retval < 0) {
-		dev_err(&client->dev, "Unable to read & clear interrupts irq=%d\n",
-			pdata->irq);
-	}
 
 	retval = request_threaded_irq(pdata->irq, NULL,
 		f34_irq_thread,

@@ -206,10 +206,11 @@ static void pfit_landscape(int hsrc_sz, int vsrc_sz,
 {
 	int hmsb, vmsb, hratio, vratio;
 
+	/* IPIL_PFIT_COEFF_MEDIAN_VALUE for fugu 720p */
 	hdmi_write32(IPIL_PFIT_CONTROL,
 			IPIL_PFIT_ENABLE |
 			IPIL_PFIT_PIPE_SELECT_B |
-			IPIL_PFIT_SCALING_PROGRAM);
+			IPIL_PFIT_SCALING_PROGRAM | IPIL_PFIT_COEFF_MEDIAN_VALUE);
 
 	/* handling scaling up and down */
 	if (hsrc_sz >= hdst_sz) {
@@ -349,6 +350,18 @@ otm_hdmi_ret_t ipil_hdmi_crtc_mode_set_program_dspregs(hdmi_device_t *dev,
 		break;
 
 	case OTM_HDMI_SCALE_ASPECT:
+		if (fb_width / (float)adjusted_mode->width > 1.5 ||
+			fb_height / (float)adjusted_mode->height > 1.5) {
+			/* panel fitter does not support scaling greater than 1.5 */
+			src_image_hor = sprite_width;
+			src_image_vert = sprite_height;
+
+			hdmi_write32(IPIL_PFIT_CONTROL,
+					hdmi_read32(IPIL_PFIT_CONTROL) &
+							~IPIL_PFIT_ENABLE);
+			break;
+		}
+
 		sprite_pos_x = 0;
 		sprite_pos_y = 0;
 		sprite_height = fb_height;
@@ -360,23 +373,17 @@ otm_hdmi_ret_t ipil_hdmi_crtc_mode_set_program_dspregs(hdmi_device_t *dev,
 		 * with the framebuffer size */
 		if ((adjusted_mode->width != fb_width) ||
 		    (adjusted_mode->height != fb_height)) {
+
 			if (fb_width > fb_height) {
 				/* Landscape mode */
 				pr_debug("Landscape mode...\n");
 
-				/* Landscape mode: program ratios is
-				 * used because 480p does not work with
-				 * auto */
-				if (adjusted_mode->height == 480)
-					pfit_landscape(sprite_width,
+				/* use programmed pfit instead of auto
+				 * for uneven hratio and vratio */
+				pfit_landscape(sprite_width,
 						sprite_height,
 						adjusted_mode->width,
 						adjusted_mode->height);
-				else
-					hdmi_write32(IPIL_PFIT_CONTROL,
-						IPIL_PFIT_ENABLE |
-						IPIL_PFIT_PIPE_SELECT_B |
-						IPIL_PFIT_SCALING_AUTO);
 			} else {
 				/* Portrait mode */
 				pr_debug("Portrait mode...\n");
@@ -546,6 +553,37 @@ otm_hdmi_ret_t ipil_hdmi_crtc_mode_set_program_timings(hdmi_device_t *dev,
 				((adjusted_mode->vsync_end - 1) << 16));
 	}
 
+	return OTM_HDMI_SUCCESS;
+}
+
+/**
+ * Description: get dpll clocks
+ *
+ * @dev:	hdmi_device_t
+ * @dclk:	refresh rate dot clock in kHz of current mode
+ *
+ * Returns:	OTM_HDMI_SUCCESS on success
+ *		OTM_HDMI_ERR_INVAL on NULL input arguments
+ */
+otm_hdmi_ret_t	ipil_hdmi_crtc_mode_get_program_dpll(hdmi_device_t *dev,
+							unsigned long dclk)
+{
+	otm_hdmi_ret_t rc = OTM_HDMI_SUCCESS;
+
+	pr_debug("enter %s\n", __func__);
+
+	/* NULL checks */
+	if (dev == NULL) {
+		pr_debug("\ninvalid argument\n");
+		return OTM_HDMI_ERR_INVAL;
+	}
+
+	/* get the adjusted clock value */
+	rc = ips_hdmi_crtc_mode_get_program_dpll(dev, dclk);
+	if (rc != OTM_HDMI_SUCCESS) {
+		pr_debug("\nfailed to calculate adjusted clock\n");
+		return rc;
+	}
 	return OTM_HDMI_SUCCESS;
 }
 
@@ -720,6 +758,22 @@ void ipil_hdmi_save_data_island(hdmi_device_t *dev)
 	if (NULL != dev)
 		ips_hdmi_save_data_island(dev);
 }
+
+/**
+ * Description:	get vic data from data island packets
+ *
+ * @dev:	hdmi_device_t
+ *
+ * Returns:	vic
+ */
+uint8_t ipil_hdmi_get_vic_from_data_island(hdmi_device_t *dev)
+{
+	if (NULL != dev)
+		return ips_hdmi_get_vic_from_data_island(dev);
+
+	return 0;
+}
+
 
 /*
  * Description: destroys any saved HDMI data

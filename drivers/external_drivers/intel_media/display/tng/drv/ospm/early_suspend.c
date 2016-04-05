@@ -29,20 +29,12 @@
 
 #include <linux/earlysuspend.h>
 #include <linux/mutex.h>
-#include <linux/notifier.h>
-#include <linux/reboot.h>
-#include <asm/intel_scu_pmic.h>
 #include "psb_drv.h"
 #include "early_suspend.h"
 #include "android_hdmi.h"
 #include "gfx_rtpm.h"
-#include "dc_maxfifo.h"
 
 static struct drm_device *g_dev;
-
-#define PULL_DOWN_EN			BIT(9)
-#define PULL_UP_EN			BIT(8)
-#define BL_EN_REG 0xFF0C2530
 
 static void gfx_early_suspend(struct early_suspend *h)
 {
@@ -55,16 +47,6 @@ static void gfx_early_suspend(struct early_suspend *h)
 
 	flush_workqueue(dev_priv->power_wq);
 
-	/*
-	 * exit s0i1-disp mode to avoid keeing system in s0i1-disp mode,
-	 * otherwise, we may block system entering into other s0i1 mode
-	 * after screen off
-	 */
-	maxfifo_timer_stop(dev);
-	exit_maxfifo_mode(dev);
-
-	if (dev_priv->psb_dpst_state)
-		psb_irq_disable_dpst(dev);
 	/* protect early_suspend with dpms and mode config */
 	mutex_lock(&dev->mode_config.mutex);
 
@@ -79,14 +61,21 @@ static void gfx_early_suspend(struct early_suspend *h)
 
 		if (encoder->encoder_type == DRM_MODE_ENCODER_TMDS) {
 			DCLockMutex();
-			drm_handle_vblank(dev, 1);
 
+			DC_MRFLD_onPowerOff(1);
+			/* give time to the last flip to take effective, if we
+			 * disable hardware too quickly, overlay hardware may
+			 * crash, causing pipe hang next time when we try to
+			 * use overlay
+			 */
+			msleep(50);
+
+			drm_handle_vblank(dev, 1);
 			/* Turn off vsync interrupt. */
 			drm_vblank_off(dev, 1);
 
 			/* Make the pending flip request as completed. */
 			DCUnAttachPipe(1);
-			DC_MRFLD_onPowerOff(1);
 			DCUnLockMutex();
 		}
 	}
@@ -100,8 +89,6 @@ static void gfx_early_suspend(struct early_suspend *h)
 	dev_priv->early_suspended = true;
 
 	mutex_unlock(&dev->mode_config.mutex);
-	psb_dpst_notify_change_um(DPST_EVENT_HIST_INTERRUPT,
-						  dev_priv->psb_dpst_state);
 }
 
 static void gfx_late_resume(struct early_suspend *h)
@@ -125,7 +112,7 @@ static void gfx_late_resume(struct early_suspend *h)
 		enc_funcs = encoder->helper_private;
 		if (!drm_helper_encoder_in_use(encoder))
 			continue;
-		if (enc_funcs && enc_funcs->save)
+		if (enc_funcs && enc_funcs->restore)
 			enc_funcs->restore(encoder);
 	}
 
@@ -153,80 +140,15 @@ static struct early_suspend intel_media_early_suspend = {
 	.resume = gfx_late_resume,
 };
 
-static int display_reboot_notifier_call(struct notifier_block *this, unsigned long event, void *ptr)
-{
-	struct drm_psb_private *dev_priv = g_dev->dev_private;
-	struct drm_device *dev = dev_priv->dev;
-	struct drm_encoder *encoder;
-	struct drm_encoder_helper_funcs *enc_funcs;
-	static void __iomem *bl_en_mmio;
-	u8 addr, value;
-	addr = 0xae;
-
-	if (!bl_en_mmio)
-		bl_en_mmio = ioremap_nocache(BL_EN_REG, 4);
-
-	switch (event) {
-	case SYS_RESTART:
-	case SYS_HALT:
-	case SYS_POWER_OFF:
-		pr_info("%s+\n", __func__);
-		//gfx_early_suspend(NULL);
-		/* protect early_suspend with dpms and mode config */
-		if (dev_priv->early_suspended)
-			return;
-
-		mutex_lock(&dev->mode_config.mutex);
-		/*
-		* We borrow the early_suspended to avoid entering flip path after
-		* shutdown is called
-		*/
-		dev_priv->early_suspended = true;
-
-		/* wait for the previous flip to be finished */
-		list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
-			enc_funcs = encoder->helper_private;
-			if (!drm_helper_encoder_in_use(encoder))
-				continue;
-			if (enc_funcs && enc_funcs->save)
-				enc_funcs->save(encoder);
-		}
-		mutex_unlock(&dev->mode_config.mutex);
-
-		printk("[DISP] turn off the power 2v8!\n");
-		usleep_range(60000, 60600);
-		intel_scu_ipc_ioread8(addr, &value);
-		value &= ~0x1;
-		intel_scu_ipc_iowrite8(addr, value);
-
-		writel((readl(bl_en_mmio) | PULL_DOWN_EN) & (~PULL_UP_EN), bl_en_mmio);
-		printk("[DISP] PULL DOWN the BL_EN gpio pin! %x\n", readl(bl_en_mmio));
-
-		pr_info("%s-\n", __func__);
-		break;
-	}
-}
-
-static struct notifier_block display_reboot_notifier = {
-	.notifier_call = display_reboot_notifier_call,
-	.priority = 2,
-};
-
 void intel_media_early_suspend_init(struct drm_device *dev)
 {
 	g_dev = dev;
 	register_early_suspend(&intel_media_early_suspend);
-
-	if (register_reboot_notifier(&display_reboot_notifier))
-		DRM_ERROR("%s: unable to register display reboot notifier\n", __func__);
 }
 
 void intel_media_early_suspend_uninit(void)
 {
 	unregister_early_suspend(&intel_media_early_suspend);
-
-	if (unregister_reboot_notifier(&display_reboot_notifier))
-		DRM_ERROR("%s: unable to unregister display reboot notifier\n", __func__);
 }
 
 #endif

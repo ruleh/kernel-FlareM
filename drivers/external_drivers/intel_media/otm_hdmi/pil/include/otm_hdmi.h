@@ -352,6 +352,22 @@ otm_hdmi_ret_t otm_hdmi_crtc_set_scaling(void *context,
 			int fb_width, int fb_height);
 
 /*
+ * Description: crtc pll get function for hdmi.
+ *
+ * @context:		hdmi_context
+ * @adjusted_mode:	adjusted mode
+ * @pclk_khz:		tmds clk value for the best pll and is needed for audio.
+ *			This field has to be moved into OTM audio
+ *			interfaces when implemented
+ *
+ * Returns:	OTM_HDMI_SUCCESS on success
+ *		OTM_HDMI_ERR_INVAL on NULL input arguments
+ */
+otm_hdmi_ret_t otm_hdmi_crtc_pll_get(void *context,
+                                otm_hdmi_timing_t *adjusted_mode,
+                                uint32_t *pclock_khz);
+
+/*
  * Description: crtc mode set function for hdmi.
  *
  * @context:		hdmi_context
@@ -414,6 +430,15 @@ otm_hdmi_ret_t otm_hdmi_disable_all_infoframes(void *context);
  */
 void otm_hdmi_save_display_registers(void *context, bool connected);
 
+/**
+ * get vic from HDMI display registers
+ * @context	:hdmi_context
+ *
+ * Returns:	vic
+ */
+uint8_t otm_hdmi_get_vic(void *context);
+
+
 /*
  * Description: disable HDMI display
  *
@@ -421,7 +446,7 @@ void otm_hdmi_save_display_registers(void *context, bool connected);
  *
  * Returns:	none
  */
-void otm_disable_hdmi(void *context, bool is_connected);
+void otm_disable_hdmi(void *context);
 
 /*
  * Description: restore hdmi display registers and enable the display
@@ -502,6 +527,8 @@ typedef enum {
 #define PD_SVBI               0x00000010 /* Software VBI supported timings    */
 #define PD_AR_16_BY_9         OTM_HDMI_PAR_16_9 /* 16:9 aspect ratio          */
 #define OTM_HDMI_COLOR_RANGE_MASK	0x0c
+
+#define AVI_VIC_LOC 4
 
 /*
  * Description: report edid tool helper function

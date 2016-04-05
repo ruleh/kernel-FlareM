@@ -49,7 +49,7 @@
 #define MAX_PB_STREAMS		1
 #define MAX_CAP_STREAMS		0
 #define HDMI_AUDIO_DRIVER	"hdmi-audio"
-DEFINE_MUTEX(had_mutex);
+static DEFINE_MUTEX(had_mutex);
 
 /*standard module options for ALSA. This module supports only one card*/
 static int hdmi_card_index = SNDRV_DEFAULT_IDX1;
@@ -96,9 +96,42 @@ MODULE_VERSION(HAD_DRIVER_VERSION);
 #define SWAP_LFE_CENTER		0x00fac4c8
 #define AUD_CONFIG_CH_MASK_V2	0x70
 
+/* supported PCM rates and bits */
+#define AC_SUPPCM_RATES   (0xfff << 0)
+#define AC_SUPPCM_BITS_8  (1<<16)
+#define AC_SUPPCM_BITS_16 (1<<17)
+#define AC_SUPPCM_BITS_20 (1<<18)
+#define AC_SUPPCM_BITS_24 (1<<19)
+#define AC_SUPPCM_BITS_32 (1<<20)
+
+#define SUPPORTED_RATES	 SNDRV_PCM_RATE_48000
+
+enum cea_audio_coding_types {
+	AUDIO_CODING_TYPE_REF_STREAM_HEADER =  0,
+	AUDIO_CODING_TYPE_LPCM              =  1,
+	AUDIO_CODING_TYPE_AC3               =  2,
+	AUDIO_CODING_TYPE_MPEG1             =  3,
+	AUDIO_CODING_TYPE_MP3               =  4,
+	AUDIO_CODING_TYPE_MPEG2             =  5,
+	AUDIO_CODING_TYPE_AACLC             =  6,
+	AUDIO_CODING_TYPE_DTS               =  7,
+	AUDIO_CODING_TYPE_ATRAC             =  8,
+	AUDIO_CODING_TYPE_SACD              =  9,
+	AUDIO_CODING_TYPE_EAC3              = 10,
+	AUDIO_CODING_TYPE_DTS_HD            = 11,
+	AUDIO_CODING_TYPE_MLP               = 12,
+	AUDIO_CODING_TYPE_DST               = 13,
+	AUDIO_CODING_TYPE_WMAPRO            = 14,
+	AUDIO_CODING_TYPE_REF_CXT           = 15,
+	/* also include valid xtypes below */
+	AUDIO_CODING_TYPE_HE_AAC            = 15,
+	AUDIO_CODING_TYPE_HE_AAC2           = 16,
+	AUDIO_CODING_TYPE_MPEG_SURROUND     = 17,
+};
+
 /*
  * ELD SA bits in the CEA Speaker Allocation data block
-*/
+ */
 static int eld_speaker_allocation_bits[] = {
 	[0] = FL | FR,
 	[1] = LFE,
@@ -200,6 +233,30 @@ static const struct snd_pcm_hardware snd_intel_hadstream = {
 	.periods_min = HAD_MIN_PERIODS,
 	.periods_max = HAD_MAX_PERIODS,
 	.fifo_size = HAD_FIFO_SIZE,
+};
+
+/*
+ * SF2:SF1:SF0 index => sampling frequency
+ */
+static int cea_sampling_frequencies[8] = {
+	0,		      /* 0: Refer to Stream Header */
+	SNDRV_PCM_RATE_32000,   /* 1:  32000Hz */
+	SNDRV_PCM_RATE_44100,   /* 2:  44100Hz */
+	SNDRV_PCM_RATE_48000,   /* 3:  48000Hz */
+	SNDRV_PCM_RATE_88200,   /* 4:  88200Hz */
+	SNDRV_PCM_RATE_96000,   /* 5:  96000Hz */
+	SNDRV_PCM_RATE_176400,  /* 6: 176400Hz */
+	SNDRV_PCM_RATE_192000,  /* 7: 192000Hz */
+};
+
+/*
+ * SS1:SS0 index => sample size
+ */
+static int cea_sample_sizes[4] = {
+	0,		      /* 0: Refer to Stream Header */
+	AC_SUPPCM_BITS_16,      /* 1: 16 bits */
+	AC_SUPPCM_BITS_20,      /* 2: 20 bits */
+	AC_SUPPCM_BITS_24,      /* 3: 24 bits */
 };
 
 /* Register access functions */
@@ -349,18 +406,6 @@ static void snd_intelhad_enable_audio_v1(struct snd_pcm_substream *substream,
 }
 
 /**
- * snd_intelhad_enable_audio_v2 - to enable audio
- *
- * @substream: Current substream or NULL if no active substream.
- * @enable: 1 if audio is to be enabled; 0 if audio is to be disabled.
- */
-static void snd_intelhad_enable_audio_v2(struct snd_pcm_substream *substream,
-					u8 enable)
-{
-	had_read_modify_aud_config_v2(substream, enable, BIT(0));
-}
-
-/**
  * snd_intelhad_reset_audio_v1 - to reset audio subsystem
  *
  * @reset: 1 to reset audio; 0 to bring audio out of reset.
@@ -369,17 +414,6 @@ static void snd_intelhad_enable_audio_v2(struct snd_pcm_substream *substream,
 static void snd_intelhad_reset_audio_v1(u8 reset)
 {
 	had_write_register(AUD_HDMI_STATUS, reset);
-}
-
-/**
- * snd_intelhad_reset_audio_v2 - to reset audio subsystem
- *
- * @reset: 1 to reset audio; 0 to bring audio out of reset.
- *
- */
-static void snd_intelhad_reset_audio_v2(u8 reset)
-{
-	had_write_register(AUD_HDMI_STATUS_v2, reset);
 }
 
 /**
@@ -481,7 +515,7 @@ int snd_intelhad_prog_audio_ctrl_v2(struct snd_pcm_substream *substream,
 	else
 		cfg_val.cfg_regx_v2.layout = LAYOUT1;
 
-	cfg_val.cfg_regx_v2.val_bit = 1;
+	cfg_val.cfg_regx_v2.val_bit = 0;
 	had_write_register(AUD_CONFIG, cfg_val.cfg_regval);
 	return 0;
 }
@@ -537,7 +571,7 @@ int snd_intelhad_prog_audio_ctrl_v1(struct snd_pcm_substream *substream,
 
 	}
 
-	cfg_val.cfg_regx.val_bit = 1;
+	cfg_val.cfg_regx.val_bit = 0;
 	had_write_register(AUD_CONFIG, cfg_val.cfg_regval);
 	return 0;
 }
@@ -566,7 +600,7 @@ static void init_channel_allocations(void)
  * The transformation takes two steps:
  *
  *      eld->spk_alloc => (eld_speaker_allocation_bits[]) => spk_mask
- *            spk_mask => (channel_allocations[])         => ai->CA
+ *      spk_mask => (channel_allocations[])	 => ai->CA
  *
  * TODO: it could select the wrong CA from multiple candidates.
 */
@@ -764,6 +798,366 @@ static int had_register_chmap_ctls(struct snd_intelhad *intelhaddata,
 }
 
 /**
+ * hdmi_audio_basic_audio_ctl_get - returns if audio is supported
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_basic_audio_ctl_get(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+	/*
+	 * Since eld has no basic audio information, we look at
+	 * spk_alloc to see if it's non-zero as an indiction of audio
+	 * support.
+	 */
+	if (intelhaddata->eeld.speaker_allocation_block == 0)
+		ucontrol->value.integer.value[0] = 0;
+	else
+		ucontrol->value.integer.value[0] = 1;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_speaker_alloc_ctl_get - returns the speaker allocation map
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_speaker_alloc_ctl_get(struct snd_kcontrol *kcontrol,
+					    struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	ucontrol->value.integer.value[0] = intelhaddata->eeld.speaker_allocation_block;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_qmode_max_ch_cnt_ctl_get- returns the max channel count for the
+ * mode being queried. The mode to be queried is set via
+ * hdmi_audio_mode_to_query_ctl_put()
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_qmode_max_ch_cnt_ctl_get(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+	otm_hdmi_sad_t *sad;
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	sad = (otm_hdmi_sad_t *)intelhaddata->eeld.mn_sand_sads;
+	sad += intelhaddata->audio_mode_to_query;
+
+	ucontrol->value.integer.value[0] = sad->max_channels + 1;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_qmode_sample_rates_ctl_get - returns the sample rate mask for the
+ * mode being queried. The mode to be queried is set via
+ * hdmi_audio_mode_to_query_ctl_put()
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_qmode_sample_rates_ctl_get(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+	otm_hdmi_sad_t *sad;
+	int rates;
+	int i;
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	sad = (otm_hdmi_sad_t *)intelhaddata->eeld.mn_sand_sads;
+	sad += intelhaddata->audio_mode_to_query;
+
+	rates = 0;
+	for (i = 0; i < 7; i++) {
+		if (sad->byte2 & (1 << i)) {
+			rates |= cea_sampling_frequencies[i + 1];
+		}
+	}
+
+	ucontrol->value.integer.value[0] = rates;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_qmode_bps_ctl_get - returns the sample sizes for the
+ * mode being queried. The mode to be queried is set via
+ * hdmi_audio_mode_to_query_ctl_put()
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_qmode_bps_ctl_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+	otm_hdmi_sad_t *sad;
+	int sample_bits;
+	int i;
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	sad = (otm_hdmi_sad_t *)intelhaddata->eeld.mn_sand_sads;
+	sad += intelhaddata->audio_mode_to_query;
+
+	sample_bits = 0;
+	if (sad->audio_format_code == AUDIO_CODING_TYPE_LPCM) {
+		for (i = 0; i < 3; i++) {
+			if (sad->byte3 & (1 << i)) {
+				sample_bits |= cea_sample_sizes[i + 1];
+			}
+		}
+	}
+	ucontrol->value.integer.value[0] = sample_bits;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_qmode_comp_br_ctl_get - returns the compressed bitrate for the
+ * mode being queried. The mode to be queried is set via
+ * hdmi_audio_mode_to_query_ctl_put()
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_qmode_comp_br_ctl_get(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+	otm_hdmi_sad_t *sad;
+	int max_bitrate;
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	sad = (otm_hdmi_sad_t *)intelhaddata->eeld.mn_sand_sads;
+	sad += intelhaddata->audio_mode_to_query;
+
+	switch(sad->audio_format_code) {
+		case AUDIO_CODING_TYPE_AC3:
+		case AUDIO_CODING_TYPE_MPEG1:
+		case AUDIO_CODING_TYPE_MP3:
+		case AUDIO_CODING_TYPE_MPEG2:
+		case AUDIO_CODING_TYPE_AACLC:
+		case AUDIO_CODING_TYPE_DTS:
+		case AUDIO_CODING_TYPE_ATRAC:
+			max_bitrate = sad->byte2 * 8000;
+			break;
+		default:
+			max_bitrate = 0;
+			break;
+	}
+
+	ucontrol->value.integer.value[0] = max_bitrate;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_qmode_format_ctl_get - returns the supported format for the
+ * mode being queried. The mode to be queried is set via
+ * hdmi_audio_mode_to_query_ctl_put()
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_qmode_format_ctl_get(struct snd_kcontrol *kcontrol,
+					   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+	otm_hdmi_sad_t *sad;
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	sad = (otm_hdmi_sad_t *)intelhaddata->eeld.mn_sand_sads;
+	sad += intelhaddata->audio_mode_to_query;
+
+	ucontrol->value.integer.value[0] = sad->audio_format_code;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_mode_to_query_ctl_get - returns the mode being queried.
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_mode_to_query_ctl_get(struct snd_kcontrol *kcontrol,
+					    struct snd_ctl_elem_value *ucontrol)
+{
+       struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	ucontrol->value.integer.value[0] = intelhaddata->audio_mode_to_query;
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_mode_to_query_ctl_put - sets the mode to be queried.
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_mode_to_query_ctl_put(struct snd_kcontrol *kcontrol,
+					    struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	if (ucontrol->value.integer.value[0] >= intelhaddata->eeld.sadc) {
+		pr_warn("audio mode value %lu invalid.  should be 0 to %d\n",
+			ucontrol->value.integer.value[0],
+			intelhaddata->eeld.sadc);
+		return -EINVAL;
+	}
+
+	intelhaddata->audio_mode_to_query = ucontrol->value.integer.value[0];
+
+	return 0;
+}
+
+/**
+ * hdmi_audio_mode_cnt_ctl_get - returns the number of audio modes in the ELD
+ *
+ * @kcontrol: kernel control structure
+ * @ucontrol: user control structure (contains i/o data)
+ *
+ */
+static int hdmi_audio_mode_cnt_ctl_get(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
+{
+       struct snd_intelhad *intelhaddata = snd_kcontrol_chip(kcontrol);
+
+	if (intelhaddata->drv_status == HAD_DRV_DISCONNECTED)
+		return -ENODEV;
+
+	ucontrol->value.integer.value[0] = intelhaddata->eeld.sadc;
+
+	return 0;
+}
+
+#define MIXER_INFO_FUNC(_sym_name, _type, _min, _max) \
+static int hdmi_audio_##_sym_name##_ctl_info(struct snd_kcontrol *kcontrol, \
+					     struct snd_ctl_elem_info *uinfo) \
+{ \
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_##_type ; \
+	uinfo->count = 1; \
+	uinfo->value.integer.min = _min; \
+	uinfo->value.integer.max = _max; \
+	return 0; \
+}
+
+#define MIXER_CONTROL(_ctl_name, _sym_name, _access, _get, _put) \
+{ \
+	.access = _access | SNDRV_CTL_ELEM_ACCESS_VOLATILE, \
+	.iface = SNDRV_CTL_ELEM_IFACE_PCM, \
+	.name = _ctl_name, \
+	.info = hdmi_audio_##_sym_name##_ctl_info, \
+	.get = _get, \
+	.put = _put, \
+}
+
+#define RO_MIXER_CONTROL(_ctl_name, _sym_name) \
+	MIXER_CONTROL(_ctl_name, _sym_name, \
+		SNDRV_CTL_ELEM_ACCESS_READ, \
+		hdmi_audio_##_sym_name##_ctl_get, \
+		NULL)
+
+#define RW_MIXER_CONTROL(_ctl_name, _sym_name) \
+	MIXER_CONTROL(_ctl_name, _sym_name, \
+		SNDRV_CTL_ELEM_ACCESS_READ | SNDRV_CTL_ELEM_ACCESS_WRITE, \
+		hdmi_audio_##_sym_name##_ctl_get, \
+		hdmi_audio_##_sym_name##_ctl_put)
+
+MIXER_INFO_FUNC(basic_audio, BOOLEAN, 0, 1);
+MIXER_INFO_FUNC(speaker_alloc, INTEGER, 0, 0x3FF);
+MIXER_INFO_FUNC(mode_cnt, INTEGER, 0, 0x7FFFFFFF);
+MIXER_INFO_FUNC(mode_to_query, INTEGER, 0, 0x7FFFFFFF);
+MIXER_INFO_FUNC(qmode_format, INTEGER, AUDIO_CODING_TYPE_LPCM,
+                                       AUDIO_CODING_TYPE_MPEG_SURROUND);
+MIXER_INFO_FUNC(qmode_max_ch_cnt, INTEGER, 0, 8);
+MIXER_INFO_FUNC(qmode_sample_rates, INTEGER, 0, SUPPORTED_RATES);
+MIXER_INFO_FUNC(qmode_bps, INTEGER, 0, (AC_SUPPCM_BITS_24 | \
+                                        AC_SUPPCM_BITS_20 | \
+                                        AC_SUPPCM_BITS_16));
+MIXER_INFO_FUNC(qmode_comp_br, INTEGER, 0, 0x7FFFFFFF);
+
+static struct snd_kcontrol_new hdmi_audio_ctls[] = {
+	RO_MIXER_CONTROL("Basic Audio Supported", basic_audio),
+	RO_MIXER_CONTROL("Speaker Allocation", speaker_alloc),
+	RO_MIXER_CONTROL("Audio Mode Count", mode_cnt),
+	RW_MIXER_CONTROL("Audio Mode To Query", mode_to_query),
+	RO_MIXER_CONTROL("Query Mode : Format", qmode_format),
+	RO_MIXER_CONTROL("Query Mode : Max Ch Count", qmode_max_ch_cnt),
+	RO_MIXER_CONTROL("Query Mode : Sample Rate Mask",
+			qmode_sample_rates),
+	RO_MIXER_CONTROL("Query Mode : PCM Bits/Sample Mask", qmode_bps),
+	RO_MIXER_CONTROL("Query Mode : Max Compressed Bitrate",
+			qmode_comp_br),
+};
+
+static int had_create_audio_ctls(struct snd_card *card, struct snd_intelhad *intelhaddata)
+{
+	struct snd_kcontrol *kctl;
+	int err;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(hdmi_audio_ctls); i++) {
+		kctl = snd_ctl_new1(&hdmi_audio_ctls[i], intelhaddata);
+		if (!kctl) {
+			return -ENOMEM;
+		}
+
+		err = snd_ctl_add(card, kctl);
+		if (err < 0) {
+			return err;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * snd_intelhad_prog_dip_v1 - to initialize Data Island Packets registers
  *
  * @substream:substream for which the prepare function is called
@@ -807,56 +1201,6 @@ static void snd_intelhad_prog_dip_v1(struct snd_pcm_substream *substream,
 	/* program remaining DIP words with zero */
 	for (i = 0; i < HAD_MAX_DIP_WORDS-VALID_DIP_WORDS; i++)
 		had_write_register(AUD_HDMIW_INFOFR, 0x0);
-
-	ctrl_state.ctrl_regx.dip_freq = 1;
-	ctrl_state.ctrl_regx.dip_en_sta = 1;
-	had_write_register(AUD_CNTL_ST, ctrl_state.ctrl_val);
-}
-
-/**
- * snd_intelhad_prog_dip_v2 - to initialize Data Island Packets registers
- *
- * @substream:substream for which the prepare function is called
- * @intelhaddata:substream private data
- *
- * This function is called in the prepare callback
- */
-static void snd_intelhad_prog_dip_v2(struct snd_pcm_substream *substream,
-				struct snd_intelhad *intelhaddata)
-{
-	int i;
-	union aud_ctrl_st ctrl_state = {.ctrl_val = 0};
-	union aud_info_frame2 frame2 = {.fr2_val = 0};
-	union aud_info_frame3 frame3 = {.fr3_val = 0};
-	u8 checksum = 0;
-	int channels;
-
-	channels = substream->runtime->channels;
-
-	had_write_register(AUD_CNTL_ST, ctrl_state.ctrl_val);
-
-	frame2.fr2_regx.chnl_cnt = substream->runtime->channels - 1;
-
-	frame3.fr3_regx.chnl_alloc = snd_intelhad_channel_allocation(
-					intelhaddata, channels);
-
-	/*Calculte the byte wide checksum for all valid DIP words*/
-	for (i = 0; i < BYTES_PER_WORD; i++)
-		checksum += (INFO_FRAME_WORD1 >> i*BITS_PER_BYTE) & MASK_BYTE0;
-	for (i = 0; i < BYTES_PER_WORD; i++)
-		checksum += (frame2.fr2_val >> i*BITS_PER_BYTE) & MASK_BYTE0;
-	for (i = 0; i < BYTES_PER_WORD; i++)
-		checksum += (frame3.fr3_val >> i*BITS_PER_BYTE) & MASK_BYTE0;
-
-	frame2.fr2_regx.chksum = -(checksum);
-
-	had_write_register(AUD_HDMIW_INFOFR_v2, INFO_FRAME_WORD1);
-	had_write_register(AUD_HDMIW_INFOFR_v2, frame2.fr2_val);
-	had_write_register(AUD_HDMIW_INFOFR_v2, frame3.fr3_val);
-
-	/* program remaining DIP words with zero */
-	for (i = 0; i < HAD_MAX_DIP_WORDS-VALID_DIP_WORDS; i++)
-		had_write_register(AUD_HDMIW_INFOFR_v2, 0x0);
 
 	ctrl_state.ctrl_regx.dip_freq = 1;
 	ctrl_state.ctrl_regx.dip_en_sta = 1;
@@ -969,31 +1313,6 @@ static void snd_intelhad_prog_cts_v1(u32 aud_samp_freq, u32 tmds, u32 n_param,
 	had_write_register(AUD_HDMI_CTS, (BIT(20) | cts_val));
 }
 
-/**
- * snd_intelhad_prog_cts_v2 - Program HDMI audio CTS value
- *
- * @aud_samp_freq: sampling frequency of audio data
- * @tmds: sampling frequency of the display data
- * @n_param: N value, depends on aud_samp_freq
- * @intelhaddata:substream private data
- *
- * Program CTS register based on the audio and display sampling frequency
- */
-static void snd_intelhad_prog_cts_v2(u32 aud_samp_freq, u32 tmds, u32 n_param,
-				struct snd_intelhad *intelhaddata)
-{
-	u32 cts_val;
-	u64 dividend, divisor;
-
-	/* Calculate CTS according to HDMI 1.3a spec*/
-	dividend = (u64)tmds * n_param*1000;
-	divisor = 128 * aud_samp_freq;
-	cts_val = div64_u64(dividend, divisor);
-	pr_debug("TMDS value=%d, N value=%d, CTS Value=%d\n",
-			tmds, n_param, cts_val);
-	had_write_register(AUD_HDMI_CTS, (BIT(24) | cts_val));
-}
-
 static int had_calculate_n_value(u32 aud_samp_freq)
 {
 	s32 n_val;
@@ -1060,31 +1379,6 @@ static int snd_intelhad_prog_n_v1(u32 aud_samp_freq, u32 *n_param,
 	return 0;
 }
 
-/**
- * snd_intelhad_prog_n_v2 - Program HDMI audio N value
- *
- * @aud_samp_freq: sampling frequency of audio data
- * @n_param: N value, depends on aud_samp_freq
- * @intelhaddata:substream private data
- *
- * This function is called in the prepare callback.
- * It programs based on the audio and display sampling frequency
- */
-static int snd_intelhad_prog_n_v2(u32 aud_samp_freq, u32 *n_param,
-				struct snd_intelhad *intelhaddata)
-{
-	s32 n_val;
-
-	n_val =	had_calculate_n_value(aud_samp_freq);
-
-	if (n_val < 0)
-		return n_val;
-
-	had_write_register(AUD_N_ENABLE, (BIT(24) | n_val));
-	*n_param = n_val;
-	return 0;
-}
-
 static void had_clear_underrun_intr_v1(struct snd_intelhad *intelhaddata)
 {
 	u32 hdmi_status, i = 0;
@@ -1107,34 +1401,6 @@ static void had_clear_underrun_intr_v1(struct snd_intelhad *intelhaddata)
 					AUD_CONFIG_MASK_FUNCRST);
 			hdmi_status |= ~AUD_CONFIG_MASK_UNDERRUN;
 			had_write_register(AUD_HDMI_STATUS, hdmi_status);
-		} else
-			break;
-	} while (i < MAX_CNT);
-	if (i >= MAX_CNT)
-		pr_err("Unable to clear UNDERRUN bits\n");
-	return;
-}
-
-static void had_clear_underrun_intr_v2(struct snd_intelhad *intelhaddata)
-{
-	u32 hdmi_status, i = 0;
-
-	/* Handle Underrun interrupt within Audio Unit */
-	had_write_register(AUD_CONFIG, 0);
-	/* Reset buffer pointers */
-	had_write_register(AUD_HDMI_STATUS_v2, 1);
-	had_write_register(AUD_HDMI_STATUS_v2, 0);
-	/**
-	 * The interrupt status 'sticky' bits might not be cleared by
-	 * setting '1' to that bit once...
-	 */
-	do { /* clear bit30, 31 AUD_HDMI_STATUS */
-		had_read_register(AUD_HDMI_STATUS_v2, &hdmi_status);
-		pr_debug("HDMI status =0x%x\n", hdmi_status);
-		if (hdmi_status & AUD_CONFIG_MASK_UNDERRUN) {
-			i++;
-			hdmi_status &= ~AUD_CONFIG_MASK_UNDERRUN;
-			had_write_register(AUD_HDMI_STATUS_v2, hdmi_status);
 		} else
 			break;
 	} while (i < MAX_CNT);
@@ -1288,7 +1554,6 @@ static int snd_intelhad_close(struct snd_pcm_substream *substream)
 		return 0;
 	}
 
-	mutex_lock(&had_mutex);
 	intelhaddata->stream_info.buffer_rendered = 0;
 	intelhaddata->stream_info.buffer_ptr = 0;
 	intelhaddata->stream_info.str_id = 0;
@@ -1297,7 +1562,6 @@ static int snd_intelhad_close(struct snd_pcm_substream *substream)
 	/* Check if following drv_status modification is required - VA */
 	if (intelhaddata->drv_status != HAD_DRV_DISCONNECTED)
 		intelhaddata->drv_status = HAD_DRV_CONNECTED;
-	mutex_unlock(&had_mutex);
 	kfree(runtime->private_data);
 	runtime->private_data = NULL;
 	ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
@@ -1476,7 +1740,7 @@ static int snd_intelhad_pcm_prepare(struct snd_pcm_substream *substream)
 	pr_debug("period_size=%zd\n",
 				frames_to_bytes(runtime, runtime->period_size));
 	pr_debug("periods=%d\n", runtime->periods);
-	pr_debug("buffer_size=%zu\n", snd_pcm_lib_buffer_bytes(substream));
+	pr_debug("buffer_size=%zd\n", snd_pcm_lib_buffer_bytes(substream));
 	pr_debug("rate=%d\n", runtime->rate);
 	pr_debug("channels=%d\n", runtime->channels);
 
@@ -1717,17 +1981,17 @@ static struct snd_kcontrol_new had_control_iec958_mask = {
 
 static struct snd_kcontrol_new had_control_iec958 = {
 	.iface =    SNDRV_CTL_ELEM_IFACE_PCM,
-	.name =         SNDRV_CTL_NAME_IEC958("", PLAYBACK, DEFAULT),
-	.info =         had_iec958_info,
-	.get =          had_iec958_get,
-	.put =          had_iec958_put
+	.name =	    SNDRV_CTL_NAME_IEC958("", PLAYBACK, DEFAULT),
+	.info =	    had_iec958_info,
+	.get =      had_iec958_get,
+	.put =	    had_iec958_put
 };
 
 static struct snd_intel_had_interface had_interface = {
-	.name =         "hdmi-audio",
-	.query =        hdmi_audio_query,
-	.suspend =      hdmi_audio_suspend,
-	.resume =       hdmi_audio_resume,
+	.name =    "hdmi-audio",
+	.query =   hdmi_audio_query,
+	.suspend = hdmi_audio_suspend,
+	.resume =  hdmi_audio_resume,
 };
 
 static struct had_ops had_ops_v1 = {
@@ -1740,15 +2004,6 @@ static struct had_ops had_ops_v1 = {
 	.handle_underrun =  had_clear_underrun_intr_v1,
 };
 
-static struct had_ops had_ops_v2 = {
-	.enable_audio = snd_intelhad_enable_audio_v2,
-	.reset_audio = snd_intelhad_reset_audio_v2,
-	.prog_n =	snd_intelhad_prog_n_v2,
-	.prog_cts =	snd_intelhad_prog_cts_v2,
-	.audio_ctrl =	snd_intelhad_prog_audio_ctrl_v2,
-	.prog_dip =	snd_intelhad_prog_dip_v2,
-	.handle_underrun = had_clear_underrun_intr_v2,
-};
 /**
  * hdmi_audio_probe - to create sound card instance for HDMI audio playabck
  *
@@ -1865,6 +2120,10 @@ static int hdmi_audio_probe(struct platform_device *devptr)
 	if (retval < 0)
 		goto free_prealloc;
 
+	retval = had_create_audio_ctls(card, intelhaddata);
+	if (retval < 0)   //TODO: Check error path
+		goto free_prealloc;
+
 	intelhaddata->dev = &devptr->dev;
 	pm_runtime_set_active(intelhaddata->dev);
 	pm_runtime_enable(intelhaddata->dev);
@@ -1875,34 +2134,10 @@ static int hdmi_audio_probe(struct platform_device *devptr)
 		pr_err("registering with display driver failed %#x\n", retval);
 		goto err;
 	}
-	if (INTEL_MID_BOARD(1, PHONE, BYT) ||
-		INTEL_MID_BOARD(1, TABLET, BYT)) {
-		intelhaddata->hw_silence = 1;
-		/* PIPE B is used for HDMI*/
-		intelhaddata->audio_reg_base = 0x65800;
-		intelhaddata->ops = &had_ops_v2;
-		version = "v2";
-	} else if (INTEL_MID_BOARD(1, PHONE, CHT) ||
-			INTEL_MID_BOARD(1, TABLET, CHT)) {
-		intelhaddata->hw_silence = 1;
-		/* PIPE C is used for HDMI*/
-		intelhaddata->audio_reg_base = 0x65900;
-		intelhaddata->ops = &had_ops_v2;
-		version = "v2";
-	} else if (INTEL_MID_BOARD(1, PHONE, MRFL) ||
-			INTEL_MID_BOARD(1, TABLET, MRFL) ||
-			INTEL_MID_BOARD(1, PHONE, MOFD) ||
-			INTEL_MID_BOARD(1, TABLET, MOFD)) {
-		intelhaddata->hw_silence = 1;
-		intelhaddata->audio_reg_base = 0x69000;
-		intelhaddata->ops = &had_ops_v1;
-		version = "v1";
-	} else{
-		intelhaddata->hw_silence = 0;
-		intelhaddata->audio_reg_base = 0x69000;
-		intelhaddata->ops = &had_ops_v1;
-		version = "v1";
-	}
+	intelhaddata->hw_silence = 1;
+	intelhaddata->audio_reg_base = 0x69000;
+	intelhaddata->ops = &had_ops_v1;
+	version = "v1";
 	had_debugfs_init(intelhaddata, version);
 	return retval;
 
@@ -1985,7 +2220,7 @@ MODULE_DEVICE_TABLE(acpi, had_acpi_ids);
 
 static struct platform_driver had_driver = {
 	.probe =        hdmi_audio_probe,
-	.remove		= hdmi_audio_remove,
+	.remove	=       hdmi_audio_remove,
 	.suspend =      NULL,
 	.resume =       NULL,
 	.driver		= {

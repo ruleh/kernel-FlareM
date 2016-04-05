@@ -179,6 +179,16 @@ struct psb_msvdx_ec_ctx {
 	drm_psb_msvdx_decode_status_t decode_status;
 };
 
+#ifdef CONFIG_ION
+struct psb_ion_buffer {
+	struct list_head head;
+	struct dma_buf *psDmaBuf;
+	struct dma_buf_attachment *psAttachment;
+	struct sg_table *sg;
+	int fd;
+};
+#endif
+
 /* MSVDX private structure */
 struct msvdx_private {
 	struct drm_device *dev;
@@ -226,6 +236,7 @@ struct msvdx_private {
 	int msvdx_fw_size;
 
 	uint32_t fw_b0_uploaded;
+	uint32_t msvdx_hw_busy;
 
 	uint32_t vec_ec_mem_data[5];
 	uint32_t vec_ec_mem_saved;
@@ -264,6 +275,15 @@ struct msvdx_private {
 	struct ttm_buffer_object *term_buf;
 	uint32_t term_buf_addr;
 #endif
+
+	atomic_t vc1_workaround_ctx;
+
+#ifdef CONFIG_ION
+	struct list_head ion_buffers_list;
+	struct mutex ion_buf_list_lock;
+#endif
+
+
 };
 
 struct psb_msvdx_cmd_queue {

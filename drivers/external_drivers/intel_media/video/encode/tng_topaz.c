@@ -1,9 +1,3 @@
-/**
- * file tng_topaz.c
- * TOPAZ I/O operations and IRQ handling
- *
- */
-
 /**************************************************************************
  *
  * Copyright (c) 2007 Intel Corporation, Hillsboro, OR, USA
@@ -166,7 +160,7 @@ uint32_t tng_wait_for_ctrl(struct drm_device *dev, uint32_t control)
 	int32_t ret = 0;
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		TOPAZHP_TOP_CR_FIRMWARE_REG_1 + (MTX_SCRATCHREG_TOHOST << 2),
-		control, 0x80000000, 1);
+		control, 0x80000000);
 	if (ret)
 		DRM_ERROR("Wait for register timeout");
 
@@ -185,7 +179,7 @@ uint32_t tng_serialize_enter(struct drm_device *dev)
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		MTX_SCRATCHREG_IDLE,
 		F_ENCODE(FW_IDLE_STATUS_IDLE, FW_IDLE_REG_STATUS),
-		MASK_FW_IDLE_REG_STATUS, 1);
+		MASK_FW_IDLE_REG_STATUS);
 	if (ret)
 		DRM_ERROR("Wait for register timeout");
 
@@ -205,7 +199,7 @@ void tng_serialize_exit(struct drm_device *dev, uint32_t enter_token)
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_NOTEQUAL,
 		MTX_SCRATCHREG_IDLE,
 		F_ENCODE(enter_token, FW_IDLE_REG_RECEIVED_COMMANDS),
-		MASK_FW_IDLE_REG_RECEIVED_COMMANDS, 1);
+		MASK_FW_IDLE_REG_RECEIVED_COMMANDS);
 	if (ret)
 		DRM_ERROR("Wait for register timeout");
 }
@@ -240,7 +234,8 @@ struct psb_video_ctx *get_ctx_from_fp(
 			entrypoint = pos->ctx_type & 0xff;
 			if (entrypoint == VAEntrypointEncSlice ||
 			    entrypoint == VAEntrypointEncPicture) {
-				spin_unlock_irqrestore(&dev_priv->video_ctx_lock, \
+				spin_unlock_irqrestore(
+					&dev_priv->video_ctx_lock,
 					irq_flags);
 				return pos;
 			}
@@ -308,7 +303,7 @@ int32_t dispatch_wb_message_polling(
 		ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_NOTEQUAL,
 			TOPAZHP_TOP_CR_FIRMWARE_REG_1 +
 				(MTX_SCRATCHREG_TOHOST << 2),
-			topaz_priv->consumer, MASK_WB_PRODUCER, 1);
+			topaz_priv->consumer, MASK_WB_PRODUCER);
 		if (ret) {
 			wb_msg = (struct IMG_WRITEBACK_MSG *)
 				video_ctx->wb_addr[topaz_priv->consumer];
@@ -335,7 +330,7 @@ int32_t dispatch_wb_message_polling(
 		ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_NOTEQUAL,
 			TOPAZHP_TOP_CR_FIRMWARE_REG_1 +
 				(MTX_SCRATCHREG_TOHOST << 2),
-			topaz_priv->consumer, MASK_WB_PRODUCER, 1);
+			topaz_priv->consumer, MASK_WB_PRODUCER);
 		if (ret) {
 			DRM_ERROR("Wait for register timeout");
 			return ret;
@@ -418,7 +413,7 @@ int32_t dispatch_wb_message_irq(struct drm_device *dev)
 		ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_NOTEQUAL,
 			TOPAZHP_TOP_CR_FIRMWARE_REG_1 +
 				(MTX_SCRATCHREG_TOHOST << 2),
-			topaz_priv->consumer, MASK_WB_PRODUCER, 1);
+			topaz_priv->consumer, MASK_WB_PRODUCER);
 		if (ret)
 			return ret;
 
@@ -481,7 +476,7 @@ int32_t tng_wait_on_sync(
 		ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_NOTEQUAL,
 			TOPAZHP_TOP_CR_FIRMWARE_REG_1 +
 				(MTX_SCRATCHREG_TOHOST << 2),
-			topaz_priv->consumer, MASK_WB_PRODUCER, 1);
+			topaz_priv->consumer, MASK_WB_PRODUCER);
 		if (ret) {
 
 			DRM_ERROR("Polling timeout\n");
@@ -501,7 +496,7 @@ int32_t tng_wait_on_sync(
 		ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_NOTEQUAL,
 			TOPAZHP_TOP_CR_FIRMWARE_REG_1 +
 				(MTX_SCRATCHREG_TOHOST << 2),
-			topaz_priv->consumer, MASK_WB_PRODUCER, 1);
+			topaz_priv->consumer, MASK_WB_PRODUCER);
 		if (ret)
 			return ret;
 		*/
@@ -597,9 +592,11 @@ bool tng_topaz_interrupt(void *pvData)
 	topaz_priv->consumer = tng_get_consumer(dev);
 	topaz_priv->producer = tng_get_producer(dev);
 
+	spin_lock_irqsave(&(topaz_priv->ctx_spinlock), flags);
 	/* Encode ctx has already been destroyed by user-space process */
 	if (NULL == topaz_priv->irq_context) {
 		PSB_DEBUG_TOPAZ("TOPAZ: ctx destroyed before ISR.\n");
+		spin_unlock_irqrestore(&(topaz_priv->ctx_spinlock), flags);
 		return true;
 	}
 
@@ -620,11 +617,11 @@ bool tng_topaz_interrupt(void *pvData)
 		tng_set_consumer(dev, topaz_priv->producer);
 	};
 
-	PSB_DEBUG_TOPAZ("TOPAZ: Context %p(%s): \n",
-		video_ctx, codec_to_string(video_ctx->codec));
+	PSB_DEBUG_TOPAZ("TOPAZ: Context %p(%s):\n",
+			video_ctx, codec_to_string(video_ctx->codec));
 	PSB_DEBUG_TOPAZ("TOPAZ: frame %d, command %s IRQ\n",
-		video_ctx->frame_count,
-		cmd_to_string(wb_msg->ui32CmdWord));
+			video_ctx->frame_count,
+			cmd_to_string(wb_msg->ui32CmdWord));
 
 	video_ctx->frame_count++;
 #if 0
@@ -644,14 +641,15 @@ bool tng_topaz_interrupt(void *pvData)
 #endif
 	*topaz_priv->topaz_sync_addr = wb_msg->ui32WritebackVal;
 	video_ctx->handle_sequence_needed = false;
+	spin_unlock_irqrestore(&(topaz_priv->ctx_spinlock), flags);
 
 	PSB_DEBUG_TOPAZ("TOPAZ: Set seq %08x, " \
-		"dqueue cmd and schedule other work queue in %dms)\n",
-		wb_msg->ui32WritebackVal, drm_topaz_pmlatency);
+		"dqueue cmd and schedule other work queue\n",
+		wb_msg->ui32WritebackVal);
 	psb_fence_handler(dev, LNC_ENGINE_ENCODE);
 
 	/* Launch the task anyway */
-	schedule_delayed_work(&topaz_priv->topaz_suspend_work, drm_topaz_pmlatency);
+	schedule_delayed_work(&topaz_priv->topaz_suspend_work, 0);
 
 	return true;
 }
@@ -676,7 +674,8 @@ static int tng_submit_encode_cmdbuf(struct drm_device *dev,
 		/* #.# load fw to driver */
 		PSB_DEBUG_TOPAZ("TOPAZ:load /lib/firmware/topazhp_fw.bin\n");
 		if (Is_Secure_Fw())
-			ret = tng_securefw(dev, "topaz", "VEC", TNG_IMR6L_MSG_REGADDR);
+			ret = tng_securefw(dev, "topaz", "VEC",
+					   TNG_IMR6L_MSG_REGADDR);
 		else
 			ret = tng_rawfw(dev, "topaz");
 		if (ret) {
@@ -704,7 +703,8 @@ static int tng_submit_encode_cmdbuf(struct drm_device *dev,
 			}
 
 			/* #.# upload firmware */
-			ret = tng_topaz_setup_fw(dev, video_ctx, topaz_priv->cur_codec);
+			ret = tng_topaz_setup_fw(dev, video_ctx,
+						 topaz_priv->cur_codec);
 			if (ret) {
 				DRM_ERROR("TOPAZ: upload FW to HW failed\n");
 				return ret;
@@ -755,7 +755,6 @@ static int tng_topaz_save_command(
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct tng_topaz_cmd_queue *topaz_cmd;
 	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
-	int32_t ret = 0;
 
 	PSB_DEBUG_TOPAZ("TOPAZ: queue command,sequence: %08x..\n",
 		sequence);
@@ -780,13 +779,11 @@ static int tng_topaz_save_command(
 	if (!topaz_priv->topaz_busy) {
 		/* topaz_priv->topaz_busy = 1; */
 		PSB_DEBUG_TOPAZ("TOPAZ: need immediate dequeue...\n");
-		ret = tng_topaz_dequeue_send(dev);
-		if (ret)
-			return -1;
+		tng_topaz_dequeue_send(dev);
 		PSB_DEBUG_TOPAZ("TOPAZ: after dequeue command\n");
 	}
 
-	return ret;
+	return 0;
 }
 
 int tng_cmdbuf_video(struct drm_file *file_priv,
@@ -798,24 +795,16 @@ int tng_cmdbuf_video(struct drm_file *file_priv,
 {
 	struct drm_device *dev = file_priv->minor->dev;
 	struct drm_psb_private *dev_priv = dev->dev_private;
-	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	struct ttm_fence_object *fence = NULL;
 	int32_t ret = 0;
-
-	if (topaz_priv->vec_err == 1) {
-		DRM_ERROR("TOPAZ: VEC has error, bypass submit cmd");
-		return -1;
-	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ : enter %s cmdsize: %d\n", __func__,
 			  arg->cmdbuf_size);
 
 	ret = tng_submit_encode_cmdbuf(dev, file_priv, cmd_buffer,
 		arg->cmdbuf_offset, arg->cmdbuf_size, fence);
-	if (ret) {
-		topaz_priv->vec_err = 1;
+	if (ret)
 		return ret;
-	}
 
 	/* workaround for interrupt issue */
 	psb_fence_or_sync(file_priv, LNC_ENGINE_ENCODE,
@@ -1112,7 +1101,7 @@ static int32_t tng_topaz_wait_for_completion(struct drm_psb_private *dev_priv)
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		REG_OFFSET_TOPAZ_MTX + MTX_CR_MTX_ENABLE,
 		MASK_MTX_MTX_TOFF,
-		MASK_MTX_MTX_TOFF | MASK_MTX_MTX_ENABLE, 1);
+		MASK_MTX_MTX_TOFF | MASK_MTX_MTX_ENABLE);
 	if (ret)
 		DRM_ERROR("TOPAZ: Wait for MTX completion time out\n");
 
@@ -1135,17 +1124,12 @@ static int32_t tng_restore_bias_table(
 	int32_t ret = 0;
 
 	p_command = video_ctx->bias_reg;
-	if (p_command == NULL) {
-		DRM_ERROR("TOPAZ: Failed to get BIAS reg pointer");
-		return -1;
-	}
 
 	size = *p_command++;
 
-	PSB_DEBUG_TOPAZ("TOPAZ: Restore BIAS %d registers " \
-		"of ctx %p(%s)\n",
-		size - 1, video_ctx, \
-		codec_to_string(video_ctx->codec));
+	PSB_DEBUG_TOPAZ("TOPAZ: Restore BIAS %d regs of ctx %p(%s)\n",
+			size - 1, video_ctx,
+			codec_to_string(video_ctx->codec));
 	for (i = 0; i < size; i++) {
 		reg_id = *p_command;
 		p_command++;
@@ -1264,14 +1248,10 @@ int32_t tng_topaz_restore_mtx_state(struct drm_device *dev)
 	MTX_WRITE32(MTX_CR_MTX_SOFT_RESET, 0);
 
 	PSB_DEBUG_TOPAZ("TOPAZ: Restore status of context %p(%s)\n",
-		video_ctx, codec_to_string(video_ctx->codec));
+			video_ctx, codec_to_string(video_ctx->codec));
 
 	/* restore register */
 	mtx_reg_state = (uint32_t *)(topaz_priv->topaz_mtx_reg_state[0]);
-	if (mtx_reg_state == NULL) {
-		DRM_ERROR("TOPAZ: Failed to get MTX register state pointer");
-		return -1;
-	}
 
 	/* Restore the MMU Control Registers */
 	MULTICORE_WRITE32(TOPAZHP_TOP_CR_MMU_DIR_LIST_BASE(0),
@@ -1417,7 +1397,7 @@ int32_t tng_topaz_restore_mtx_state_b0(struct drm_device *dev)
 	PSB_DEBUG_TOPAZ("Read R(0x%08x) V(0x%08x)\n",
 		VEC_SS_PM0, ret);
 	PSB_DEBUG_TOPAZ("TOPAZ: Restore status of context %p(%s)\n",
-		video_ctx, codec_to_string(video_ctx->codec));
+			video_ctx, codec_to_string(video_ctx->codec));
 
 	MULTICORE_READ32(TOPAZHP_TOP_CR_MULTICORE_HW_CFG, &num_pipes);
 	num_pipes = num_pipes & MASK_TOPAZHP_TOP_CR_NUM_CORES_SUPPORTED;
@@ -1540,7 +1520,7 @@ int32_t tng_topaz_restore_mtx_state_b0(struct drm_device *dev)
 	ret = tng_topaz_wait_for_register(
 		dev_priv, CHECKFUNC_ISEQUAL,
 		TOPAZHP_TOP_CR_FIRMWARE_REG_1 + (MTX_SCRATCHREG_BOOTSTATUS<<2),
-		TOPAZHP_FW_BOOT_SIGNAL, 0xffffffff, 1);
+		TOPAZHP_FW_BOOT_SIGNAL, 0xffffffff);
 	if (ret) {
 		DRM_ERROR("Restore Firmware failed\n");
 		return ret;
@@ -1579,7 +1559,7 @@ static int  tng_poll_hw_inactive(struct drm_device *dev)
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		MTX_SCRATCHREG_IDLE,
 		F_ENCODE(FW_IDLE_STATUS_IDLE, FW_IDLE_REG_STATUS),
-		MASK_FW_IDLE_REG_STATUS, 0);
+		MASK_FW_IDLE_REG_STATUS);
 	if (ret)
 		DRM_ERROR("Wait for register timeout");
 
@@ -1595,7 +1575,7 @@ static int mtx_wait_for_completion(struct drm_psb_private *dev_priv)
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		REG_OFFSET_TOPAZ_MTX + MTX_CR_MTX_ENABLE,
 		MASK_MTX_MTX_TOFF,
-		MASK_MTX_MTX_TOFF | MASK_MTX_MTX_ENABLE, 1);
+		MASK_MTX_MTX_TOFF | MASK_MTX_MTX_ENABLE);
 	if (ret)
 		DRM_ERROR("TOPAZ: Wait for MTX completion time out\n");
 
@@ -1620,15 +1600,16 @@ int tng_topaz_save_mtx_state(struct drm_device *dev)
 	PSB_DEBUG_TOPAZ("tng_topaz_save_mtx_state: start\n");
 
 #ifdef TOPAZHP_IRQ_ENABLED
-	mutex_lock(&topaz_priv->ctx_mutex);
+	spin_lock_irqsave(&topaz_priv->topaz_lock, irq_flags);
+	spin_lock(&topaz_priv->ctx_spinlock);
 
 	/* In case the context has been removed in
 	 * tng_topaz_remove_ctx()
 	*/
 	video_ctx = topaz_priv->irq_context;
 	if (!video_ctx || !video_ctx->wb_bo) {
-		PSB_DEBUG_TOPAZ("TOPAZ: Context %p has " \
-			"been released, bypass saving context\n", \
+		PSB_DEBUG_TOPAZ("TOPAZ: Context %p has "\
+				"been released, bypass saving context\n",
 			video_ctx);
 		goto out;
 	}
@@ -1693,10 +1674,6 @@ int tng_topaz_save_mtx_state(struct drm_device *dev)
 	}
 
 	mtx_reg_state = (uint32_t *)(topaz_priv->topaz_mtx_reg_state[0]);
-	if (mtx_reg_state == NULL) {
-		DRM_ERROR("TOPAZ: Failed to get MTX register state pointer");
-		return -1;
-	}
 
 	/* Save the MMU Control Registers */
 	MULTICORE_READ32(TOPAZHP_TOP_CR_MMU_DIR_LIST_BASE(0), mtx_reg_state);
@@ -1736,7 +1713,8 @@ int tng_topaz_save_mtx_state(struct drm_device *dev)
 
 out:
 #ifdef TOPAZHP_IRQ_ENABLED
-	mutex_unlock(&topaz_priv->ctx_mutex);
+	spin_unlock(&topaz_priv->ctx_spinlock);
+	spin_unlock_irqrestore(&topaz_priv->topaz_lock, irq_flags);
 #endif
 	/* topaz_priv->topaz_mtx_saved = 1; */
 	PSB_DEBUG_TOPAZ("TOPAZ: Save MTX status return\n");
@@ -1787,7 +1765,7 @@ static int tng_save_bias_table(
 	/* Register count */
 	size = *reg_saving_ptr = *p_command;
 	PSB_DEBUG_TOPAZ("TOPAZ: Save BIAS table %d registers " \
-		"for context %p\n", size, video_ctx);
+			"for context %p\n", size, video_ctx);
 
 	p_command++;
 	reg_saving_ptr++;
@@ -1843,7 +1821,7 @@ static int32_t tng_release_context(
 		video_ctx->status |= MASK_TOPAZ_FIRMWARE_EXIT;
 	} else {
 		PSB_DEBUG_TOPAZ("TOPAZ: JPEG bypass unmap " \
-			"reg/data saving BO\n");
+				"reg/data saving BO\n");
 	}
 
 	return 0;
@@ -2141,14 +2119,15 @@ static int tng_context_switch_secure(
 	if (TNG_IS_H264_ENC(codec)) {
 		codec = IMG_CODEC_H264_ALL_RC;
 		PSB_DEBUG_TOPAZ("TOPAZ: use RC_ALL for all H264 Codec\n");
-		PSB_DEBUG_TOPAZ("TOPAZ: %s to %s\n", \
-		codec_to_string(codec), codec_to_string(video_ctx->codec));
+		PSB_DEBUG_TOPAZ("TOPAZ: %s to %s\n",
+				codec_to_string(codec),
+				codec_to_string(video_ctx->codec));
 	}
 
-	PSB_DEBUG_TOPAZ("Incoming context is %p(%s, %08x)\n", \
-		video_ctx, \
-		codec_to_string(video_ctx->codec), \
-		video_ctx->status);
+	PSB_DEBUG_TOPAZ("Incoming context is %p (%s, %08x)\n",
+			video_ctx,
+			codec_to_string(video_ctx->codec),
+			video_ctx->status);
 
 	/* Handle JPEG burst mode, save current context only if it's not JPEG */
 	if (codec == IMG_CODEC_JPEG) {
@@ -2169,8 +2148,10 @@ static int tng_context_switch_secure(
 
 	/* Continue doing other commands */
 	if (is_first_frame) {
-		PSB_DEBUG_TOPAZ("TOPAZ: First frame of ctx %p(%s, %08x), continue\n",
-			video_ctx, codec_to_string(codec), video_ctx->status);
+		PSB_DEBUG_TOPAZ("TOPAZ: First frame of ctx " \
+				"%p(%s, %08x), continue\n",
+				video_ctx, codec_to_string(codec),
+				video_ctx->status);
 		topaz_priv->cur_context = video_ctx;
 		topaz_priv->cur_codec = codec;
 		return ret;
@@ -2216,10 +2197,10 @@ static int tng_context_switch_secure(
 			return ret;
 		}
 
-		PSB_DEBUG_TOPAZ("Restore context %p(%s, %08x)", \
-			video_ctx, \
-			codec_to_string(video_ctx->codec), \
-			video_ctx->status);
+		PSB_DEBUG_TOPAZ("Restore context %p(%s, %08x)",
+				video_ctx,
+				codec_to_string(video_ctx->codec),
+				video_ctx->status);
 
 		/* Context switch */
 		topaz_priv->cur_context = video_ctx;
@@ -2252,16 +2233,17 @@ static int tng_context_switch(
 	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ: Frame (%d)\n", video_ctx->frame_count);
-	PSB_DEBUG_TOPAZ("Incoming context is %p(%s, %08x)\n", \
-		video_ctx, \
-		codec_to_string(video_ctx->codec), \
-		video_ctx->status);
+	PSB_DEBUG_TOPAZ("Incoming context is %p(%s, %08x)\n",
+			video_ctx,
+			codec_to_string(video_ctx->codec),
+			video_ctx->status);
 
 	/* Handle JPEG burst mode, save current context only if it's not JPEG */
 	if (codec == IMG_CODEC_JPEG) {
 		if (topaz_priv->cur_context &&
 		    topaz_priv->cur_context->codec != IMG_CODEC_JPEG &&
-		    !(topaz_priv->cur_context->status & MASK_TOPAZ_CONTEXT_SAVED)) {
+		    !(topaz_priv->cur_context->
+		      status &MASK_TOPAZ_CONTEXT_SAVED)) {
 
 			ret = tng_topaz_save_mtx_state(dev);
 			if (ret) {
@@ -2276,8 +2258,10 @@ static int tng_context_switch(
 
 	/* Continue doing other commands */
 	if (is_first_frame) {
-		PSB_DEBUG_TOPAZ("TOPAZ: First frame of ctx %p(%s, %08x), continue\n",
-			video_ctx, codec_to_string(codec), video_ctx->status);
+		PSB_DEBUG_TOPAZ("First frame of ctx %p(%s, %08x), continue\n",
+				video_ctx,
+				codec_to_string(codec),
+				video_ctx->status);
 		topaz_priv->cur_context = video_ctx;
 		topaz_priv->cur_codec = codec;
 		return ret;
@@ -2292,10 +2276,11 @@ static int tng_context_switch(
 			}
 		}
 		if (video_ctx->status & MASK_TOPAZ_CONTEXT_SAVED) {
-			PSB_DEBUG_TOPAZ("Same comtext %p(%s, %08x) and already saved\n",
-				video_ctx, \
-				codec_to_string(video_ctx->codec), \
-				video_ctx->status);
+			PSB_DEBUG_TOPAZ("Same comtext %p(%s, %08x) " \
+					"and already saved\n",
+					video_ctx,
+					codec_to_string(video_ctx->codec),
+					video_ctx->status);
 
 			if (Is_Secure_Fw()) {
 				ret = tng_topaz_power_up(dev, codec);
@@ -2322,10 +2307,11 @@ static int tng_context_switch(
 				}
 			}
 		} else {
-			PSB_DEBUG_TOPAZ("Same context %p(%s, %08x) but not saved, continue\n",
-				video_ctx, \
-				codec_to_string(video_ctx->codec), \
-				video_ctx->status);
+			PSB_DEBUG_TOPAZ("Same context %p(%s, %08x) " \
+					"but not saved, continue\n",
+					video_ctx,
+					codec_to_string(video_ctx->codec),
+					video_ctx->status);
 			topaz_priv->cur_context = video_ctx;
 			topaz_priv->cur_codec = codec;
 			return ret;
@@ -2334,16 +2320,23 @@ static int tng_context_switch(
 		/* Current context already saved */
 		if (topaz_priv->cur_context->status & \
 		    MASK_TOPAZ_CONTEXT_SAVED) {
-			PSB_DEBUG_TOPAZ("Different context and current context %p(%s, %08x) already saved, continue\n",
-				topaz_priv->cur_context, \
-				codec_to_string(topaz_priv->cur_context->codec), \
-				topaz_priv->cur_context->status);
+			PSB_DEBUG_TOPAZ("Different context and current context"\
+					" %p(%s, %08x) already saved, "\
+					"continue\n",
+					topaz_priv->cur_context,
+					codec_to_string(topaz_priv->
+							cur_context->
+							codec),
+					topaz_priv->cur_context->status);
 		} else {
 			/* Save current context */
-			PSB_DEBUG_TOPAZ("Different context and current context %p(%s, %08x) not saved, save it first",
-				topaz_priv->cur_context, \
-				codec_to_string(topaz_priv->cur_context->codec), \
-				topaz_priv->cur_context->status);
+			PSB_DEBUG_TOPAZ("Different context and current context"\
+					" %p(%s, %08x) not saved,"\
+					" save it first",
+					topaz_priv->cur_context,
+					codec_to_string(topaz_priv->
+							cur_context->codec),
+					topaz_priv->cur_context->status);
 			if (Is_Secure_Fw()) {
 				ret = tng_topaz_power_off(dev);
 				if (ret) {
@@ -2351,14 +2344,17 @@ static int tng_context_switch(
 					return ret;
 				}
 			} else {
-				if (topaz_priv->cur_context->codec != IMG_CODEC_JPEG) {
+				if (topaz_priv->cur_context->codec !=
+				    IMG_CODEC_JPEG) {
 					ret = tng_topaz_save_mtx_state(dev);
 					if (ret) {
-						DRM_ERROR("Failed to save mtx status");
+						DRM_ERROR("Failed to save "\
+							  "mtx status");
 						return ret;
 					}
 				} else
-					PSB_DEBUG_TOPAZ("TOPAZ: Bypass saving JPEG context\n");
+					PSB_DEBUG_TOPAZ("TOPAZ: Bypass saving "\
+							"JPEG context\n");
 			}
 		}
 
@@ -2370,10 +2366,10 @@ static int tng_context_switch(
 			}
 		}
 
-		PSB_DEBUG_TOPAZ("Restore context %p(%s, %08x)", \
-			video_ctx, \
-			codec_to_string(video_ctx->codec), \
-			video_ctx->status);
+		PSB_DEBUG_TOPAZ("Restore context %p(%s, %08x)",
+				video_ctx,
+				codec_to_string(video_ctx->codec),
+				video_ctx->status);
 
 		/* Context switch */
 		topaz_priv->cur_context = video_ctx;
@@ -2388,7 +2384,8 @@ static int tng_context_switch(
 			if (topaz_priv->cur_context->codec != IMG_CODEC_JPEG) {
 				ret = tng_topaz_restore_mtx_state(dev);
 				if (ret) {
-					DRM_ERROR("Failed to restore mtx status");
+					DRM_ERROR("Failed to restore "\
+						  "mtx status");
 					return ret;
 				}
 			}
@@ -2428,7 +2425,12 @@ static int32_t tng_fill_input_control (
 	uint16_t mb_param;
 	int32_t ret;
 	bool is_iomem;
+	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	struct psb_video_ctx *video_ctx;
+
+	mb_w = topaz_priv->frame_w / 16;
+	mb_h = topaz_priv->frame_h / 16;
 
 	video_ctx = get_ctx_from_fp(dev, file_priv->filp);
 	if (video_ctx == NULL) {
@@ -2437,14 +2439,14 @@ static int32_t tng_fill_input_control (
 	}
 	video_ctx->pseudo_rand_seed = pseudo_rand_seed;
 
-	mb_w = video_ctx->frame_w / 16;
-	mb_h = video_ctx->frame_h / 16;
+	PSB_DEBUG_TOPAZ("TOPAZ: Fill input control, cir=%d, initqp=%d, " \
+			"minqp=%d, slot=%d, bufsize=%d, pseudo=%d, " \
+			"mb_w=%d, mb_h=%d\n",
+			ir, init_qp, min_qp, slot_num, buf_size,
+			pseudo_rand_seed, mb_w, mb_h);
 
-	PSB_DEBUG_TOPAZ("TOPAZ: Fill input control, cir=%d, initqp=%d, minqp=%d, \
-		slot=%d, bufsize=%d, pseudo=%d, mb_w=%d, mb_h=%d\n", \
-		ir, init_qp, min_qp, slot_num, buf_size, pseudo_rand_seed, mb_w, mb_h);
-
-	ret = ttm_bo_reserve(video_ctx->cir_input_ctrl_bo, true, true, false, 0);
+	ret = ttm_bo_reserve(video_ctx->cir_input_ctrl_bo,
+			     true, true, false, 0);
 	if (ret) {
 		DRM_ERROR("TOPAZ: reserver failed.\n");
 		return -1;
@@ -2459,8 +2461,11 @@ static int32_t tng_fill_input_control (
 		return -1;
 	}
 
-	video_ctx->cir_input_ctrl_addr = (uint32_t*)(ttm_kmap_obj_virtual(
-		&video_ctx->cir_input_ctrl_kmap, &is_iomem) + slot_num * buf_size);
+	video_ctx->cir_input_ctrl_addr =
+		(uint32_t *)(ttm_kmap_obj_virtual(
+				     &video_ctx->
+				     cir_input_ctrl_kmap,
+				     &is_iomem) + slot_num * buf_size);
 
 	if (ir > 0) {
 		refresh = true;
@@ -2482,7 +2487,8 @@ static int32_t tng_fill_input_control (
 
 			mb_param = default_param;
 			if (refresh) {
-				if ((int32_t)cur_index > video_ctx->last_cir_index) {
+				if ((int32_t)cur_index >
+				    video_ctx-> last_cir_index) {
 					video_ctx->last_cir_index = cur_index;
 					mb_param = intra_param;
 					ir--;
@@ -2527,6 +2533,8 @@ static int32_t tng_update_air_send (
 	uint32_t ui32MBMaxSize;
 	uint16_t *pui16MBParam;
 	uint32_t ui32NewScanPos;
+	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	struct psb_video_ctx *video_ctx;
 
 	ui16IntraParam = (0 << 7) | (0 << 4);
@@ -2539,18 +2547,22 @@ static int32_t tng_update_air_send (
 
 	if (skip_count >= 0)
 		video_ctx->air_info.air_skip_cnt = skip_count;
-	else
-		video_ctx->air_info.air_skip_cnt = (frame_count & 0x7) + 1; // Pseudorandom skip.
+	else /* Pseudorandom skip */
+		video_ctx->air_info.air_skip_cnt = (frame_count & 0x7) + 1;
 
 	if (frame_count < 1) {
 		video_ctx->air_info.air_per_frame = air_per_frame;
 		return 0;
 	}
 
-	PSB_DEBUG_TOPAZ("TOPAZ: Update air send, slot_num=%d, skip_count=%d, air_per_frame=%d, buf_size=%d, frame_count=%d\n", \
-		slot_num, video_ctx->air_info.air_skip_cnt, video_ctx->air_info.air_per_frame, buf_size, frame_count);
+	PSB_DEBUG_TOPAZ("TOPAZ: Update air send, slot_num=%d, skip_count=%d, "\
+			"air_per_frame=%d, buf_size=%d, frame_count=%d\n", \
+			slot_num, video_ctx->air_info.air_skip_cnt,
+			video_ctx->air_info.air_per_frame,
+			buf_size, frame_count);
 
-	ret = ttm_bo_reserve(video_ctx->cir_input_ctrl_bo, true, true, false, 0);
+	ret = ttm_bo_reserve(video_ctx->cir_input_ctrl_bo,
+			     true, true, false, 0);
 	if (ret) {
 		DRM_ERROR("TOPAZ: reserver failed.\n");
 		return -1;
@@ -2565,18 +2577,22 @@ static int32_t tng_update_air_send (
 		return -1;
 	}
 
-	video_ctx->cir_input_ctrl_addr = (uint32_t*)(ttm_kmap_obj_virtual(
-		&video_ctx->cir_input_ctrl_kmap, &is_iomem) + slot_num * buf_size);
-    
-	// get the buffer
-	pui16MBParam = (uint16_t*) video_ctx->cir_input_ctrl_addr;
+	video_ctx->cir_input_ctrl_addr =
+		(uint32_t *)(ttm_kmap_obj_virtual(
+				    &video_ctx->cir_input_ctrl_kmap,
+				    &is_iomem) + slot_num * buf_size);
 
-	//fill data 
-	ui32MBMaxSize = (uint32_t)(video_ctx->frame_w / 16) * (IMG_UINT32)(video_ctx->frame_h / 16);
+	/* get the buffer */
+	pui16MBParam = (uint16_t *) video_ctx->cir_input_ctrl_addr;
+
+	/* fill data */
+	ui32MBMaxSize = (uint32_t)(topaz_priv->frame_w / 16) *
+		(IMG_UINT32)(topaz_priv->frame_h / 16);
 
 	ui32CurrentCnt = 0;
-    
-	ui32NewScanPos = (uint32_t) (video_ctx->air_info.air_scan_pos + video_ctx->air_info.air_skip_cnt) % ui32MBMaxSize;
+	ui32NewScanPos = (uint32_t) (video_ctx->air_info.air_scan_pos +
+				     video_ctx->air_info.air_skip_cnt) %
+		ui32MBMaxSize;
 	ui32CurrentCnt = ui32SentCnt = 0;
 
 	while (ui32CurrentCnt < ui32MBMaxSize &&
@@ -2587,29 +2603,34 @@ static int32_t tng_update_air_send (
 
 		if (video_ctx->air_info.air_table[ui32NewScanPos] >= 0) {
 			// Mark the entry as 'touched'
-			video_ctx->air_info.air_table[ui32NewScanPos] = -1 - video_ctx->air_info.air_table[ui32NewScanPos];
-    
-			if (video_ctx->air_info.air_table[ui32NewScanPos] < -1) {
-				ui16MBParam = pui16MBParam[ui32NewScanPos] & (0xFF << 10);
+			video_ctx->air_info.air_table[ui32NewScanPos] =
+				-1 - video_ctx->
+				air_info.air_table[ui32NewScanPos];
+
+			if (video_ctx->air_info.air_table[ui32NewScanPos] <
+			    -1) {
+				ui16MBParam = pui16MBParam[ui32NewScanPos] &
+					(0xFF << 10);
 				ui16MBParam |= ui16IntraParam;
 				pui16MBParam[ui32NewScanPos] = ui16MBParam;
 				video_ctx->air_info.air_table[ui32NewScanPos]++;
-				ui32NewScanPos += video_ctx->air_info.air_skip_cnt;
+				ui32NewScanPos +=
+					video_ctx->air_info.air_skip_cnt;
 				ui32SentCnt++;
 			}
 			ui32CurrentCnt++;
 		}
-    
+
 		ui32NewScanPos++;
 		ui32NewScanPos = ui32NewScanPos % ui32MBMaxSize;
 		if (ui32NewScanPos == video_ctx->air_info.air_scan_pos) {
-			/* we have looped around */ 
+			/* we have looped around */
 			break;
 		}
 	}
-    
+
 	video_ctx->air_info.air_scan_pos = ui32NewScanPos;
-    
+
 	ttm_bo_unreserve(video_ctx->cir_input_ctrl_bo);
 	ttm_bo_kunmap(&video_ctx->cir_input_ctrl_kmap);
 	return 0;
@@ -2620,6 +2641,8 @@ static int32_t tng_air_buf_clear(
 	struct drm_file *file_priv)
 {
 	struct psb_video_ctx *video_ctx;
+	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 
 	video_ctx = get_ctx_from_fp(dev, file_priv->filp);
 	if (video_ctx == NULL) {
@@ -2628,7 +2651,8 @@ static int32_t tng_air_buf_clear(
 	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ: Clear AIR buffer\n");
-	memset(video_ctx->air_info.air_table, 0, (video_ctx->frame_h * video_ctx->frame_w) >> 8);
+	memset(video_ctx->air_info.air_table, 0,
+	       (topaz_priv->frame_h * topaz_priv->frame_w) >> 8);
 
 	return 0;
 }
@@ -2652,8 +2676,11 @@ static int32_t tng_update_air_calc(
 	uint32_t ui32MBx, ui32MBy;
 	uint32_t ui32SADParam;
 	uint32_t ui32tSAD_Threshold, ui32tSAD_ThresholdLo, ui32tSAD_ThresholdHi;
-	uint32_t ui32MaxMBs, ui32NumMBsOverThreshold, ui32NumMBsOverLo, ui32NumMBsOverHi;
+	uint32_t ui32MaxMBs, ui32NumMBsOverThreshold,
+		ui32NumMBsOverLo, ui32NumMBsOverHi;
 	struct psb_video_ctx *video_ctx;
+	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	IMG_BEST_MULTIPASS_MB_PARAMS *psBestMB_Params;
 	IMG_FIRST_STAGE_MB_PARAMS *psFirstMB_Params;
 	uint8_t *pFirstPassOutBuf;
@@ -2662,8 +2689,10 @@ static int32_t tng_update_air_calc(
 	ui16IntraParam = (0 << 7) | (0 << 4);
 	ui32NumMBsOverThreshold = ui32NumMBsOverLo = ui32NumMBsOverHi = 0;
 
-	PSB_DEBUG_TOPAZ("TOPAZ: Update air calc, slot_num=%d, buf_size=%d, sad_threshold=%d, enable_sel_states_flag=%08x\n", \
-		slot_num, buf_size, sad_threshold, enable_sel_states_flag);
+	PSB_DEBUG_TOPAZ("TOPAZ: Update air calc, slot_num=%d, buf_size=%d, "\
+			"sad_threshold=%d, enable_sel_states_flag=%08x\n", \
+			slot_num, buf_size, sad_threshold,
+			enable_sel_states_flag);
 
 	video_ctx = get_ctx_from_fp(dev, file_priv->filp);
 	if (video_ctx == NULL) {
@@ -2672,67 +2701,89 @@ static int32_t tng_update_air_calc(
 	}
 
 	/* Map first pass out params */
-	ret = ttm_bo_reserve(video_ctx->bufs_first_pass_out_params_bo, true, true, false, 0);
+	ret = ttm_bo_reserve(video_ctx->bufs_f_p_out_params_bo, true,
+			     true, false, 0);
 	if (ret) {
 		DRM_ERROR("TOPAZ: reserver failed.\n");
 		return -1;
 	}
 
-	ret = ttm_bo_kmap(video_ctx->bufs_first_pass_out_params_bo, 0,
-			video_ctx->bufs_first_pass_out_params_bo->num_pages,
-			&video_ctx->bufs_first_pass_out_params_kmap);
+	ret = ttm_bo_kmap(video_ctx->bufs_f_p_out_params_bo, 0,
+			video_ctx->bufs_f_p_out_params_bo->num_pages,
+			&video_ctx->bufs_f_p_out_params_kmap);
 	if (ret) {
 		DRM_ERROR("TOPAZ: Failed to map first pass out param bo\n");
-		ttm_bo_unref(&video_ctx->bufs_first_pass_out_params_bo);
+		ttm_bo_unref(&video_ctx->bufs_f_p_out_params_bo);
 		return -1;
 	}
 
-	video_ctx->bufs_first_pass_out_params_addr = (uint32_t*)(ttm_kmap_obj_virtual(
-		&video_ctx->bufs_first_pass_out_params_kmap, &is_iomem) + slot_num * buf_size);
+	video_ctx->bufs_f_p_out_params_addr =
+		(uint32_t *)(ttm_kmap_obj_virtual(
+				     &video_ctx->bufs_f_p_out_params_kmap,
+				     &is_iomem) + slot_num * buf_size);
 
-	pFirstPassOutBuf = (uint8_t *)video_ctx->bufs_first_pass_out_params_addr;
+	pFirstPassOutBuf =
+		(uint8_t *)video_ctx->bufs_f_p_out_params_addr;
 
 	/* Map first pass out best multipass params */
-	ret = ttm_bo_reserve(video_ctx->bufs_first_pass_out_best_multipass_param_bo, true, true, false, 0);
+	ret = ttm_bo_reserve(video_ctx->
+			     bufs_f_p_out_best_mp_param_bo,
+			     true, true, false, 0);
 	if (ret) {
 		DRM_ERROR("TOPAZ: reserver failed.\n");
 		return -1;
 	}
 
-	ret = ttm_bo_kmap(video_ctx->bufs_first_pass_out_best_multipass_param_bo, 0,
-			video_ctx->bufs_first_pass_out_best_multipass_param_bo->num_pages,
-			&video_ctx->bufs_first_pass_out_best_multipass_param_kmap);
+	ret = ttm_bo_kmap(video_ctx->
+			  bufs_f_p_out_best_mp_param_bo, 0,
+			  video_ctx->
+			  bufs_f_p_out_best_mp_param_bo->
+			  num_pages,
+			  &video_ctx->
+			  bufs_f_p_out_best_mp_param_kmap);
 	if (ret) {
-		DRM_ERROR("TOPAZ: Failed to map first pass out best multipass param bo\n");
-		ttm_bo_unref(&video_ctx->bufs_first_pass_out_best_multipass_param_bo);
+		DRM_ERROR("TOPAZ: Failed to map first pass out best multipass "\
+			  "param bo\n");
+		ttm_bo_unref(&video_ctx->
+			     bufs_f_p_out_best_mp_param_bo);
 		return -1;
 	}
-	video_ctx->bufs_first_pass_out_best_multipass_param_addr = (uint32_t*)(ttm_kmap_obj_virtual(
-		&video_ctx->bufs_first_pass_out_best_multipass_param_kmap, &is_iomem) + slot_num * buf_size);
+	video_ctx->bufs_f_p_out_best_mp_param_addr =
+		(uint32_t *)(ttm_kmap_obj_virtual(
+				     &video_ctx->
+				     bufs_f_p_out_best_mp_param_kmap,
+				     &is_iomem) + slot_num * buf_size);
 
-	pBestMBDecisionCtrlBuf = (uint8_t *)video_ctx->bufs_first_pass_out_best_multipass_param_addr;
+	pBestMBDecisionCtrlBuf = (uint8_t *)video_ctx->
+		bufs_f_p_out_best_mp_param_addr;
 
-	//fill data 
-	ui32MBFrameWidth  = (video_ctx->frame_w / 16);
-	ui32MBPictureHeight = (video_ctx->frame_h / 16);
-	
-	// get the SAD results buffer (either IPE0 and IPE1 results or, preferably, the more accurate Best Multipass SAD results)
+	/* fill data */
+	ui32MBFrameWidth  = (topaz_priv->frame_w / 16);
+	ui32MBPictureHeight = (topaz_priv->frame_h / 16);
+
+	/* get the SAD results buffer (either IPE0 and IPE1 results or,
+	   preferably, the more accurate Best Multipass SAD results) */
 	if (pBestMBDecisionCtrlBuf) {
 		pvSADBuffer = pBestMBDecisionCtrlBuf;
 
-		if (enable_sel_states_flag & ESF_MP_BEST_MOTION_VECTOR_STATS)
-		{
-			// The actual Param structures (which contain SADs) are located after the Multipass Motion Vector entries
-			pvSADBuffer += (ui32MBPictureHeight * (ui32MBFrameWidth) * sizeof(IMG_BEST_MULTIPASS_MB_PARAMS_IPMV));
+		if (enable_sel_states_flag & ESF_MP_BEST_MOTION_VECTOR_STATS) {
+			/* The actual Param structures (which contain SADs) are
+			   located after the Multipass Motion Vector entries */
+			pvSADBuffer +=
+				(ui32MBPictureHeight * (ui32MBFrameWidth) *
+				 sizeof(IMG_BEST_MULTIPASS_MB_PARAMS_IPMV));
 		}
 	} else {
 		pvSADBuffer = pFirstPassOutBuf;
 	}
 
 	if (video_ctx->air_info.air_per_frame == 0)
-		ui32MaxMBs = ui32MBFrameWidth * ui32MBPictureHeight; // Default to ALL MB's in frame
+		/* Default to ALL MB's in frame */
+		ui32MaxMBs = ui32MBFrameWidth * ui32MBPictureHeight;
 	else if (video_ctx->air_info.air_per_frame < 0)
-		video_ctx->air_info.air_per_frame = ui32MaxMBs = ((ui32MBFrameWidth * ui32MBPictureHeight) + 99) / 100; // Default to 1% of MB's in frame (min 1)
+		/* Default to 1% of MB's in frame (min 1) */
+		video_ctx->air_info.air_per_frame = ui32MaxMBs =
+			((ui32MBFrameWidth * ui32MBPictureHeight) + 99) / 100;
 	else
 		ui32MaxMBs = video_ctx->air_info.air_per_frame;
 
@@ -2740,21 +2791,33 @@ static int32_t tng_update_air_calc(
 
 	video_ctx->air_info.sad_threshold = sad_threshold;
 	if (video_ctx->air_info.sad_threshold >= 0)
-		ui32tSAD_Threshold = (uint16_t)video_ctx->air_info.sad_threshold;
+		ui32tSAD_Threshold =
+			(uint16_t)video_ctx->air_info.sad_threshold;
 	else {
 		// Running auto adjust threshold adjust mode
 		if (video_ctx->air_info.sad_threshold == -1) {
 			// This will occur only the first time
 			if (pBestMBDecisionCtrlBuf) {
-				psBestMB_Params=(IMG_BEST_MULTIPASS_MB_PARAMS *) pSADPointer; // Auto seed the threshold with the first value
-				ui32SADParam = psBestMB_Params->ui32SAD_Inter_MBInfo & IMG_BEST_MULTIPASS_SAD_MASK;
+				/*Auto seed the threshold with the first value*/
+				psBestMB_Params =
+					(IMG_BEST_MULTIPASS_MB_PARAMS *)
+					pSADPointer;
+				ui32SADParam = psBestMB_Params->
+					ui32SAD_Inter_MBInfo &
+					IMG_BEST_MULTIPASS_SAD_MASK;
 			} else {
-				psFirstMB_Params = (IMG_FIRST_STAGE_MB_PARAMS *) pSADPointer; // Auto seed the threshold with the first value
-                		ui32SADParam = (uint32_t) psFirstMB_Params->ui16Ipe0Sad;
-            		}
-            		video_ctx->air_info.sad_threshold = -1 - ui32SADParam; // Negative numbers indicate auto-adjusting threshold
-        	}
-		ui32tSAD_Threshold = (int32_t) - (video_ctx->air_info.sad_threshold + 1);
+				/*Auto seed the threshold with the first value*/
+				psFirstMB_Params =
+					(IMG_FIRST_STAGE_MB_PARAMS *)
+					pSADPointer;
+				ui32SADParam = (uint32_t) psFirstMB_Params->
+					ui16Ipe0Sad;
+			}
+			/* Negative numbers indicate auto-adjusting threshold */
+			video_ctx->air_info.sad_threshold = -1 - ui32SADParam;
+		}
+		ui32tSAD_Threshold =
+			(int32_t) - (video_ctx->air_info.sad_threshold + 1);
 	}
 
 	ui32tSAD_ThresholdLo = ui32tSAD_Threshold / 2;
@@ -2803,8 +2866,9 @@ static int32_t tng_update_air_calc(
 				}
 			}
 		}
-		if ((uint64_t)pSADPointer % 64)
-			pSADPointer = (uint8_t *) ALIGN_64(((uint64_t) pSADPointer));
+		if ((uint32_t)(uintptr_t)pSADPointer % 64)
+			pSADPointer = (uint8_t *)(uintptr_t)
+				ALIGN_64(((uint32_t)(uintptr_t) pSADPointer));
 	}
 
 	// Test and process running adaptive threshold case
@@ -2832,10 +2896,10 @@ static int32_t tng_update_air_calc(
 		}
 	}
 
-	ttm_bo_unreserve(video_ctx->bufs_first_pass_out_params_bo);
-	ttm_bo_kunmap(&video_ctx->bufs_first_pass_out_params_kmap);
-	ttm_bo_unreserve(video_ctx->bufs_first_pass_out_best_multipass_param_bo);
-	ttm_bo_kunmap(&video_ctx->bufs_first_pass_out_best_multipass_param_kmap);
+	ttm_bo_unreserve(video_ctx->bufs_f_p_out_params_bo);
+	ttm_bo_kunmap(&video_ctx->bufs_f_p_out_params_kmap);
+	ttm_bo_unreserve(video_ctx->bufs_f_p_out_best_mp_param_bo);
+	ttm_bo_kunmap(&video_ctx->bufs_f_p_out_best_mp_param_kmap);
 
 	return 0;
 }
@@ -2854,8 +2918,8 @@ static int32_t tng_setup_WB_mem(
 	uint32_t wb_handle;
 	uint32_t mtx_ctx_handle;
 	uint32_t cir_input_ctrl_handle;
-	uint32_t bufs_first_pass_out_params_handle;
-	uint32_t bufs_first_pass_out_best_multipass_param_handle;
+	uint32_t bufs_f_p_out_params_handle;
+	uint32_t bufs_f_p_out_best_mp_param_handle;
 	uint8_t *ptmp = NULL;
 	const uint8_t pas_val = (uint8_t) ~0x0;
 
@@ -2895,17 +2959,17 @@ static int32_t tng_setup_WB_mem(
 				&video_ctx->wb_bo_kmap, &is_iomem);
 
 	PSB_DEBUG_TOPAZ("TOPAZ: memset: val=0x%08x, len=%d\n", \
-		pas_val, len);
+			pas_val, len);
 
 	PSB_DEBUG_TOPAZ("TOPAZ: memset: wb_addr=%p, i=%d\n", \
-		video_ctx->wb_addr[0], i);
+			video_ctx->wb_addr[0], i);
 
 	ptmp = (uint8_t *)(video_ctx->wb_addr[i++]);
 	memset(ptmp, pas_val, len);
 	while (i < WB_FIFO_SIZE) {
 		video_ctx->wb_addr[i] = video_ctx->wb_addr[i-1] + 0x400;
 		PSB_DEBUG_TOPAZ("TOPAZ: memset: wb_addr=%p, i=%d\n", \
-			video_ctx->wb_addr[i], i);
+				video_ctx->wb_addr[i], i);
 		ptmp = (uint8_t *)(video_ctx->wb_addr[i++]);
 		memset(ptmp, pas_val, len);
 	} ;
@@ -2948,8 +3012,8 @@ static int32_t tng_setup_WB_mem(
 		return -1;
 	}
 
-	video_ctx->setv_addr = (uint32_t)((uint64_t)ttm_kmap_obj_virtual(
-				&video_ctx->mtx_ctx_kmap, &is_iomem));
+	video_ctx->setv_addr = (uint32_t)(uintptr_t)ttm_kmap_obj_virtual(
+				&video_ctx->mtx_ctx_kmap, &is_iomem);
 
 	cir_input_ctrl_handle = *((uint32_t *)command + 5);
 
@@ -2959,23 +3023,23 @@ static int32_t tng_setup_WB_mem(
 		return -1;
 	}
 
-	bufs_first_pass_out_params_handle = *((uint32_t *)command + 6);
+	bufs_f_p_out_params_handle = *((uint32_t *)command + 6);
 
-	video_ctx->bufs_first_pass_out_params_bo = ttm_buffer_object_lookup(tfile, bufs_first_pass_out_params_handle);
-	if (unlikely(video_ctx->bufs_first_pass_out_params_bo == NULL)) {
+	video_ctx->bufs_f_p_out_params_bo = ttm_buffer_object_lookup(tfile, bufs_f_p_out_params_handle);
+	if (unlikely(video_ctx->bufs_f_p_out_params_bo == NULL)) {
 		DRM_ERROR("TOPAZ: Failed to lookup air first pass out parameter handle\n");
 		return -1;
 	}
-	video_ctx->bufs_first_pass_out_params_addr = NULL;
+	video_ctx->bufs_f_p_out_params_addr = NULL;
 
-	bufs_first_pass_out_best_multipass_param_handle = *((uint32_t *)command + 7);
+	bufs_f_p_out_best_mp_param_handle = *((uint32_t *)command + 7);
 
-	video_ctx->bufs_first_pass_out_best_multipass_param_bo = ttm_buffer_object_lookup(tfile, bufs_first_pass_out_best_multipass_param_handle);
-	if (unlikely(video_ctx->bufs_first_pass_out_best_multipass_param_bo == NULL)) {
+	video_ctx->bufs_f_p_out_best_mp_param_bo = ttm_buffer_object_lookup(tfile, bufs_f_p_out_best_mp_param_handle);
+	if (unlikely(video_ctx->bufs_f_p_out_best_mp_param_bo == NULL)) {
 		DRM_ERROR("TOPAZ: Failed to lookup air first pass out best multipass parameter handle\n");
 		return -1;
 	}
-	video_ctx->bufs_first_pass_out_best_multipass_param_addr = NULL;
+	video_ctx->bufs_f_p_out_best_mp_param_addr = NULL;
 
 	return ret;
 }
@@ -2990,6 +3054,10 @@ static int tng_setup_new_context_secure(
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	int32_t ret = 0;
+
+	topaz_priv->frame_h = (uint16_t)((*((uint32_t *) cmd + 1)) & 0xffff);
+	topaz_priv->frame_w = (uint16_t)(((*((uint32_t *) cmd + 1))
+				& 0xffff0000)  >> 16) ;
 
 	video_ctx = get_ctx_from_fp(dev, file_priv->filp);
 	if (video_ctx == NULL) {
@@ -3014,21 +3082,15 @@ static int tng_setup_new_context_secure(
 	video_ctx->low_cmd_count = 0xa5a5a5a5 % MAX_TOPAZ_CMD_COUNT;
 	video_ctx->last_cir_index = -1;
 	video_ctx->air_info.air_scan_pos = 0;
-	video_ctx->frame_h = (uint16_t)((*((uint32_t *) cmd + 1)) & 0xffff);
-	video_ctx->frame_w = (uint16_t)(((*((uint32_t *) cmd + 1))
-					& 0xffff0000)  >> 16) ;
-
-	if (codec != IMG_CODEC_JPEG) {
-		video_ctx->air_info.air_table = kzalloc((video_ctx->frame_h * video_ctx->frame_w) >> 8, GFP_KERNEL);
-		if (!video_ctx->air_info.air_table) {
-			DRM_ERROR("TOPAZ: Failed to alloc memory for AIR table\n");
-			return -1;
-		}
+	video_ctx->air_info.air_table = kzalloc((topaz_priv->frame_h * topaz_priv->frame_w) >> 8, GFP_KERNEL);
+	if (!video_ctx->air_info.air_table) {
+		DRM_ERROR("TOPAZ: Failed to alloc memory for AIR table\n");
+		return -1;
 	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ: new context %p(%s)(cur context = %p)\n",
-		video_ctx, codec_to_string(codec), \
-		topaz_priv->cur_context);
+			video_ctx, codec_to_string(codec),
+			topaz_priv->cur_context);
 
 	if (Is_Secure_Fw() && drm_topaz_pmpolicy == PSB_PMPOLICY_NOPM) {
 		PSB_DEBUG_TOPAZ("TOPAZ: new context, force a poweroff to reload firmware anyway\n");
@@ -3043,10 +3105,10 @@ static int tng_setup_new_context_secure(
 		is_island_on(OSPM_VIDEO_ENC_ISLAND)) {
 
 		PSB_DEBUG_TOPAZ("Current context %p(%s, %08x)" \
-			" not saved, save it first\n", \
-			topaz_priv->cur_context, \
-			codec_to_string(topaz_priv->cur_context->codec), \
-			topaz_priv->cur_context->status);
+				" not saved, save it first\n",
+				topaz_priv->cur_context,
+				codec_to_string(topaz_priv->cur_context->codec),
+				topaz_priv->cur_context->status);
 
 		ret = tng_topaz_power_off(dev);
 		if (ret) {
@@ -3092,6 +3154,10 @@ static int tng_setup_new_context(
 	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	int32_t ret = 0;
 
+	topaz_priv->frame_h = (uint16_t)((*((uint32_t *) cmd + 1)) & 0xffff);
+	topaz_priv->frame_w = (uint16_t)(((*((uint32_t *) cmd + 1))
+				& 0xffff0000)  >> 16) ;
+
 	video_ctx = get_ctx_from_fp(dev, file_priv->filp);
 	if (video_ctx == NULL) {
 		DRM_ERROR("Failed to get video contex from filp");
@@ -3108,21 +3174,15 @@ static int tng_setup_new_context(
 	video_ctx->low_cmd_count = 0xa5a5a5a5 % MAX_TOPAZ_CMD_COUNT;
 	video_ctx->last_cir_index = -1;
 	video_ctx->air_info.air_scan_pos = 0;
-	video_ctx->frame_h = (uint16_t)((*((uint32_t *) cmd + 1)) & 0xffff);
-	video_ctx->frame_w = (uint16_t)(((*((uint32_t *) cmd + 1))
-					& 0xffff0000)  >> 16) ;
-
-	if (codec != IMG_CODEC_JPEG) {
-		video_ctx->air_info.air_table = (int8_t *)kzalloc((video_ctx->frame_h * video_ctx->frame_w) >> 8, GFP_KERNEL);
-		if (!video_ctx->air_info.air_table) {
-			DRM_ERROR("TOPAZ: Failed to alloc memory for AIR table\n");
-			return -1;
-		}
+	video_ctx->air_info.air_table = (int8_t *)kzalloc((topaz_priv->frame_h * topaz_priv->frame_w) >> 8, GFP_KERNEL);
+	if (!video_ctx->air_info.air_table) {
+		DRM_ERROR("TOPAZ: Failed to alloc memory for AIR table\n");
+		return -1;
 	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ: new context %p(%s)(cur context = %p)\n",
-		video_ctx, codec_to_string(codec), \
-		topaz_priv->cur_context);
+			video_ctx, codec_to_string(codec),
+			topaz_priv->cur_context);
 
 	if (Is_Secure_Fw() && drm_topaz_pmpolicy == PSB_PMPOLICY_NOPM) {
 		PSB_DEBUG_TOPAZ("TOPAZ: new context, force a poweroff to reload firmware anyway\n");
@@ -3137,17 +3197,17 @@ static int tng_setup_new_context(
 		if (topaz_priv->cur_context->status & \
 		    MASK_TOPAZ_CONTEXT_SAVED) {
 			PSB_DEBUG_TOPAZ("Current context %p(%s, %08x)" \
-				" already saved, continue\n", \
-				topaz_priv->cur_context, \
-				codec_to_string(topaz_priv->cur_context->codec), \
-				topaz_priv->cur_context->status);
+					" already saved, continue\n",
+					topaz_priv->cur_context,
+					codec_to_string(topaz_priv->cur_context->codec),
+					topaz_priv->cur_context->status);
 		/* If the previous context not saved */
 		} else {
 			PSB_DEBUG_TOPAZ("Current context %p(%s, %08x)" \
-				" not saved, save it first\n", \
-				topaz_priv->cur_context, \
-				codec_to_string(topaz_priv->cur_context->codec), \
-				topaz_priv->cur_context->status);
+					" not saved, save it first\n",
+					topaz_priv->cur_context,
+					codec_to_string(topaz_priv->cur_context->codec),
+					topaz_priv->cur_context->status);
 
 			if (Is_Secure_Fw()) {
 				ret = tng_topaz_power_off(dev);
@@ -3332,8 +3392,6 @@ tng_topaz_send(
 	uint32_t codec = 0;
 	int32_t cur_cmd_size = 4;
 	int32_t cmd_size = (int32_t)cmd_size_in;
-
-	/* uint32_t m; */
 	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	int32_t ret = 0;
 	struct psb_video_ctx *video_ctx;
@@ -3345,10 +3403,10 @@ tng_topaz_send(
 			return ret;
 		}
 	}
-
 	video_ctx = get_ctx_from_fp(dev, file_priv->filp);
 	if (!video_ctx) {
-		DRM_ERROR("Failed to get context from filp %p\n", file_priv->filp);
+		DRM_ERROR("Failed to get context from filp %p\n",
+			  file_priv->filp);
 		ret = -1;
 		goto out;
 	}
@@ -3498,7 +3556,6 @@ tng_topaz_send(
 					tng_topaz_fw_run(dev, video_ctx, IMG_CODEC_JPEG);
 				} else {
 					tng_topaz_reset(dev_priv);
-					tng_topaz_mmu_hwsetup(dev_priv, video_ctx);
 					tng_topaz_setup_fw(dev, video_ctx, topaz_priv->cur_codec);
 				}
 
@@ -3574,7 +3631,9 @@ tng_topaz_send(
 			/* Calculate command size */
 			switch (cur_cmd_id) {
 			case MTX_CMDID_SETVIDEO:
-				cur_cmd_size = (video_ctx->codec == IMG_CODEC_JPEG) ? (6 + 1) : (7 + 1);
+				cur_cmd_size =
+					(video_ctx->codec == IMG_CODEC_JPEG) ?
+					(6 + 1) : (7 + 1);
 				break;
 			case MTX_CMDID_SETUP_INTERFACE:
 			case MTX_CMDID_SHUTDOWN:
@@ -3622,17 +3681,18 @@ int tng_topaz_remove_ctx(
 	struct psb_video_ctx *video_ctx)
 {
 	struct tng_topaz_private *topaz_priv;
+	/* struct psb_video_ctx *video_ctx; */
 	struct tng_topaz_cmd_queue *entry, *next;
 	unsigned long flags;
 
 	topaz_priv = dev_priv->topaz_private;
 
-	mutex_lock(&topaz_priv->ctx_mutex);
-
+	spin_lock_irqsave(&(topaz_priv->ctx_spinlock), flags);
 	if (video_ctx == topaz_priv->irq_context)
 		topaz_priv->irq_context = NULL;
-	if (video_ctx == topaz_priv->cur_context)
-		topaz_priv->cur_context = NULL;
+	spin_unlock_irqrestore(&(topaz_priv->ctx_spinlock), flags);
+
+	mutex_lock(&topaz_priv->topaz_mutex);
 
 	/* topaz_priv->topaz_busy = 0; */
 	/* video_ctx = NULL; */
@@ -3663,12 +3723,12 @@ int tng_topaz_remove_ctx(
 
 	if (video_ctx == NULL) {
 		DRM_ERROR("Invalid video context\n");
-		mutex_unlock(&topaz_priv->ctx_mutex);
+		mutex_unlock(&topaz_priv->topaz_mutex);
 		return -1;
 	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ: release context %p(%s)\n",
-		video_ctx, codec_to_string(video_ctx->codec));
+			video_ctx, codec_to_string(video_ctx->codec));
 
 	if (video_ctx->bias_reg) {
 		PSB_DEBUG_TOPAZ("TOPAZ: Free bias reg saving memory\n");
@@ -3689,7 +3749,8 @@ int tng_topaz_remove_ctx(
 		ttm_bo_kunmap(&video_ctx->mtx_ctx_kmap);
 		/* unreserve if reserved in tng_setup_WB_mem() */
 		if (0 != atomic_read(&video_ctx->mtx_ctx_bo->reserved)) {
-			PSB_DEBUG_TOPAZ("MTX context reserved, unreserve it now\n");
+			PSB_DEBUG_TOPAZ("MTX context reserved, "\
+					"unreserve it now\n");
 			ttm_bo_unreserve(video_ctx->mtx_ctx_bo);
 		}
 		ttm_bo_unref(&video_ctx->mtx_ctx_bo);
@@ -3702,16 +3763,17 @@ int tng_topaz_remove_ctx(
 		video_ctx->cir_input_ctrl_bo = NULL;
 	}
 
-	if (video_ctx->bufs_first_pass_out_best_multipass_param_bo) {
-		PSB_DEBUG_TOPAZ("TOPAZ: unref first pass out best multipass param bo\n");
-		ttm_bo_unref(&video_ctx->bufs_first_pass_out_best_multipass_param_bo);
-		video_ctx->bufs_first_pass_out_best_multipass_param_bo = NULL;
+	if (video_ctx->bufs_f_p_out_best_mp_param_bo) {
+		PSB_DEBUG_TOPAZ("TOPAZ: unref first pass out best "\
+				"multipass param bo\n");
+		ttm_bo_unref(&video_ctx->bufs_f_p_out_best_mp_param_bo);
+		video_ctx->bufs_f_p_out_best_mp_param_bo = NULL;
 	}
 
-	if (video_ctx->bufs_first_pass_out_params_bo) {
+	if (video_ctx->bufs_f_p_out_params_bo) {
 		PSB_DEBUG_TOPAZ("TOPAZ: unref first pass out param bo\n");
-		ttm_bo_unref(&video_ctx->bufs_first_pass_out_params_bo);
-		video_ctx->bufs_first_pass_out_params_bo = NULL;
+		ttm_bo_unref(&video_ctx->bufs_f_p_out_params_bo);
+		video_ctx->bufs_f_p_out_params_bo = NULL;
 	}
 
 	if (video_ctx->air_info.air_table) {
@@ -3749,7 +3811,7 @@ int tng_topaz_remove_ctx(
 		dev_priv->topaz_ctx = NULL;
 	}
 
-	mutex_unlock(&topaz_priv->ctx_mutex);
+	mutex_unlock(&topaz_priv->topaz_mutex);
 
 	return 0;
 }
@@ -3789,11 +3851,6 @@ int tng_topaz_dequeue_send(struct drm_device *dev)
 	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 	int32_t ret = 0;
 
-	if (topaz_priv->vec_err == 1) {
-		DRM_ERROR("TOPAZ: VEC has error, bypass dequeue and send cmd");
-		return -1;
-	}
-
 	/* Avoid race condition with queue buffer when topaz_busy = 1 */
 	mutex_lock(&topaz_priv->topaz_mutex);
 	if (list_empty(&topaz_priv->topaz_queue)) {
@@ -3806,12 +3863,6 @@ int tng_topaz_dequeue_send(struct drm_device *dev)
 
 	topaz_cmd = list_first_entry(&topaz_priv->topaz_queue,
 			struct tng_topaz_cmd_queue, head);
-
-	if (topaz_priv->saved_queue == NULL ||
-	    topaz_priv->saved_cmd == NULL) {
-		DRM_ERROR("TOPAZ: Failed to get saved queue/cmd pointer");
-		return -1;
-	}
 
 	memset(topaz_priv->saved_queue, 0, sizeof(struct tng_topaz_cmd_queue));
 	memset(topaz_priv->saved_cmd, 0, MAX_CMD_SIZE);
@@ -3838,9 +3889,8 @@ int tng_topaz_dequeue_send(struct drm_device *dev)
 		topaz_priv->saved_queue->cmd_size,
 		topaz_priv->saved_queue->sequence);
 	if (ret) {
-		DRM_ERROR("TOPAZ: tng_topaz_send in dequeue failed.\n");
-		topaz_priv->vec_err = 1;
-		return -EINVAL;
+		DRM_ERROR("TOPAZ: tng_topaz_send failed.\n");
+		ret = -EINVAL;
 	}
 
 	PSB_DEBUG_TOPAZ("TOPAZ: dequeue command of sequence %08x " \

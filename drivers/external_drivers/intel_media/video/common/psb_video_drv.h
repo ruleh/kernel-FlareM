@@ -229,7 +229,7 @@ enum VAEntrypoint {
 };
 
 #define VA_RT_FORMAT_PROTECTED	0x80000000
-
+#define PSB_SURFACE_UNAVAILABLE 0x40000000
 
 /**
  *struct psb_context
@@ -296,12 +296,12 @@ struct psb_video_ctx {
 
 	/* AIR parameters */
 	struct adaptive_intra_refresh_info_type air_info;
-	struct ttm_buffer_object *bufs_first_pass_out_params_bo;
-	struct ttm_bo_kmap_obj bufs_first_pass_out_params_kmap;
-	uint32_t *bufs_first_pass_out_params_addr;
-	struct ttm_buffer_object *bufs_first_pass_out_best_multipass_param_bo;
-	struct ttm_bo_kmap_obj bufs_first_pass_out_best_multipass_param_kmap;
-	uint32_t *bufs_first_pass_out_best_multipass_param_addr;
+	struct ttm_buffer_object *bufs_f_p_out_params_bo;
+	struct ttm_bo_kmap_obj bufs_f_p_out_params_kmap;
+	uint32_t *bufs_f_p_out_params_addr;
+	struct ttm_buffer_object *bufs_f_p_out_best_mp_param_bo;
+	struct ttm_bo_kmap_obj bufs_f_p_out_best_mp_param_kmap;
+	uint32_t *bufs_f_p_out_best_mp_param_addr;
 
 	/* Save state registers */
 	uint32_t *bias_reg;
@@ -309,8 +309,6 @@ struct psb_video_ctx {
 	uint32_t status;
 	uint32_t codec;
 	uint32_t frame_count;
-	uint32_t frame_w;
-	uint32_t frame_h;
 	/* Firmware data section offset and size */
 	uint32_t mtx_debug_val;
 	uint32_t mtx_bank_size;

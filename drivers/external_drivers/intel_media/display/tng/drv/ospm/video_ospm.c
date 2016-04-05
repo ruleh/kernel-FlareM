@@ -34,13 +34,12 @@
 #include <asm/intel-mid.h>
 #include "pmu_tng.h"
 
+static bool need_set_ved_freq = true;
+
 static int pm_cmd_freq_get(u32 reg_freq);
 static int pm_cmd_freq_set(u32 reg_freq, u32 freq_code, u32 *p_freq_code_rlzd);
 static int pm_cmd_freq_wait(u32 reg_freq, u32 *freq_code_rlzd);
-#if 0
-static void pm_cmd_power_set(int pm_reg, int pm_mask);
-#endif
-static bool need_set_ved_freq = true;
+static void pm_cmd_power_set(int pm_reg, int pm_mask) __attribute__((unused));
 
 static void vsp_set_max_frequency(struct drm_device *dev);
 static void vsp_set_default_frequency(struct drm_device *dev);
@@ -148,6 +147,31 @@ void ospm_vsp_init(struct drm_device *dev,
 }
 
 /***********************************************************
+ * slc workaround for ved
+ ***********************************************************/
+/**
+ * apply_ved_slc_workaround
+ *
+ * bypass SLC for ved if there is ctx that needs the workaround
+ */
+#define GFX_WRAPPER_GBYPASSENABLE_SW 0x160854
+static void apply_ved_slc_workaround(struct drm_device *dev)
+{
+	struct drm_psb_private *dev_priv = psb_priv(dev);
+	struct msvdx_private *msvdx_priv = dev_priv->msvdx_private;
+
+	if (atomic_read(&msvdx_priv->vc1_workaround_ctx)) {
+		uint32_t reg, data;
+
+		/* soc.gfx_wrapper.gbypassenable_sw = 1 */
+		reg = GFX_WRAPPER_GBYPASSENABLE_SW - GFX_WRAPPER_OFFSET;
+		data = WRAPPER_REG_READ(reg);
+		data |= 0x1; /* Disable Bypass SLC for VED on MOFD */
+		WRAPPER_REG_WRITE(reg, data);
+	}
+}
+
+/***********************************************************
  * ved islands
  ***********************************************************/
 /**
@@ -164,6 +188,8 @@ static bool ved_power_up(struct drm_device *dev,
 	/* struct drm_psb_private *dev_priv = dev->dev_private; */
 
 	PSB_DEBUG_PM("powering up ved\n");
+	apply_ved_slc_workaround(dev);
+
 #ifndef USE_GFX_INTERNAL_PM_FUNC
 	pm_ret = pmu_nc_set_power_state(PMU_DEC, OSPM_ISLAND_UP, VED_SS_PM0);
 #else
@@ -334,6 +360,7 @@ static bool vec_power_down(struct drm_device *dev,
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 
+	/* Avoid handle the previous context's power down request */
 	topaz_priv->power_down_by_release = 0;
 
 	PSB_DEBUG_PM("TOPAZ: powering down vec\n");
@@ -546,7 +573,6 @@ void psb_set_freq_control_switch(bool config_value)
 	need_set_ved_freq = config_value;
 }
 
-#if 0
 static void pm_cmd_power_set(int pm_reg, int pm_mask)
 {
 	intel_mid_msgbus_write32(0x04, pm_reg, pm_mask);
@@ -560,4 +586,3 @@ static void pm_cmd_power_set(int pm_reg, int pm_mask)
 	pm_mask = intel_mid_msgbus_read32(0x04, pm_reg);
 	PSB_DEBUG_PM("pwr_mask read: reg=0x%x pwr_mask=0x%x \n", pm_reg, pm_mask);
 }
-#endif

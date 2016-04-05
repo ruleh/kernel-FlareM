@@ -26,96 +26,172 @@
 
 #ifdef CONFIG_DX_SEP54
 extern int sepapp_image_verify(u8 *addr, ssize_t size, u32 key_index, u32 magic_num);
-extern int sepapp_key_validity_check(u8 *addr, ssize_t size, u32 flag);
 #endif
 
 /*
- * FW load flow:
- * 1. check if verifcation FW is valid for this platform
- * 2. check if product FW is valid
+ * For a new product/device, if the device information is not in the spid2fw
+ * table, driver will
+ * 1) Firstly try to load firmware with the name like msvdx.bin.0004.0004.000d
+ * 2) If there is no such firmware, driver will use the existing firmware from
+ *    the closest device (usually with same family id or product id)
+ * 3) Use the key from the closest device
  *
- * To your own FW with non-INTEL key signed, releace verfication FW.
+ * If above 1)/2) is failed, a new firmware is needed. For testing pupose without
+ * driver change
+ * 1) The new firmware must be with the name like msvdx.bin.0004.0004.000d
+ * 2) If use other key, try to modify /sys/module/<driver module>/video_sepkey
+ *
+ * For the formal change, extend spid2fw table to include the device and firmware
  */
 
 #define FW_NAME_LEN  64
 #define IMR_REG_NUMBER(imrl_reg) ((imrl_reg - TNG_IMR_MSG_REGBASE) >> 2)
 #define ISLAND_MAGIC_NUMBER(island_str) ((island_str[2] << 24) | (island_str[1] << 16) | (island_str[0] << 8) | '$')
-#define VRL_SZ 728
 
-#define prod_suffix		"prod"
-#define verf_suffix		"verf"
+#define mofd_vv_fab_a_msvdx	"msvdx.bin.0008.0000.0000"
+#define mofd_v0_msvdx		"msvdx.bin.0008.0000.0001"
+#define mofd_v1_pr2_msvdx	"msvdx.bin.0008.0002.0001"
+#define mofd_ffrd_pr0_msvdx	mofd_v0_msvdx
+#define mofd_prh_b0_msvdx	"msvdx.bin.000c.0001.0001"
+#define mofd_fugu_product_msvdx	"msvdx.bin.0008.0000.0002"
 
-static int tng_checkfw(struct drm_device *dev, char *fw_name,
-	unsigned char *imr_ptr, int key, uint64_t imr_addr)
+#define mofd_vv_fab_a_topaz	"topaz.bin.0008.0000.0000"
+#define mofd_v0_topaz		"topaz.bin.0008.0000.0001"
+#define mofd_v1_pr2_topaz	"topaz.bin.0008.0002.0001"
+#define mofd_ffrd_pr0_topaz	mofd_vv_fab_a_topaz
+#define mofd_prh_b0_topaz	"topaz.bin.000c.0001.0001"
+#define mofd_fugu_product_topaz	"topaz.bin.0008.0000.0002"
+
+#define mofd_vv_fab_a_vsp	"vsp.bin.0008.0000.0000"
+#define mofd_v0_vsp		"vsp.bin.0008.0000.0001"
+#define mofd_v1_pr2_vsp		"vsp.bin.0008.0002.0001"
+#define mofd_ffrd_pr0_vsp	mofd_vv_fab_a_vsp
+#define mofd_prh_b0_vsp		"vsp.bin.000c.0001.0001"
+#define mofd_fugu_product_vsp		"vsp.bin.0008.0000.0002"
+
+#define mofd_default_spid	"0008.0001.0001"
+/*
+ * Firmware name if there is no entry in spid2fw table
+ */
+static char default_msvdx[FW_NAME_LEN];
+static char default_topaz[FW_NAME_LEN];
+static char default_vsp[FW_NAME_LEN];
+
+struct spid2fw_mapping {
+	u16 family_id;
+	u16 product_id;
+	u16 hardware_id;
+	char *msvdx_fw;
+	char *topaz_fw;
+	char *vsp_fw;
+	int sep_key;
+};
+
+/*
+ * Table spid2fw
+ */
+static struct spid2fw_mapping spid2fw[] = {
+	{8, 0, 0, mofd_vv_fab_a_msvdx, mofd_vv_fab_a_topaz, mofd_vv_fab_a_vsp, 15}, /* moorefield VV Fab A */
+	{8, 0, 1, mofd_v0_msvdx, mofd_v0_topaz, mofd_v0_vsp, 15}, /* moorefield V0 */
+	{8, 2, 0, mofd_vv_fab_a_msvdx, mofd_vv_fab_a_topaz, mofd_vv_fab_a_vsp, 15}, /* moorefield V1 VV with A0 soc */
+	{8, 2, 1, mofd_v1_pr2_msvdx, mofd_v1_pr2_topaz, mofd_v1_pr2_vsp, 15}, /* moorefield V1 PR2 */
+	//{8, 0, 2, mofd_product_msvdx, mofd_product_topaz, mofd_product_vsp, 15}, /* Anniedale Production Keys (QS/PRQ) */
+
+        {8, 0, 2, mofd_fugu_product_msvdx, mofd_fugu_product_topaz, mofd_fugu_product_vsp, 15},
+	{0xc, 0, 4, mofd_ffrd_pr0_msvdx, mofd_ffrd_pr0_topaz, mofd_ffrd_pr0_vsp, 15}, /* moorefield FFRD PR0 */
+	{0xc, 1, 1, mofd_prh_b0_msvdx, mofd_prh_b0_topaz, mofd_prh_b0_vsp, 15}, /* MCG Moorefield PRH B0 */
+
+	{-1, -1, -1, NULL, NULL, NULL, 15} /* the last entry for non-supported device */
+};
+
+/*
+* Fall back once mismatch
+*/
+static struct spid2fw_mapping default_mofd_spid2fw =
+	{8, 0, 2, mofd_fugu_product_msvdx, mofd_fugu_product_topaz, mofd_fugu_product_vsp, 15}; /* moorefield V0 */
+
+#define SPID2FW_NUMBER sizeof(spid2fw)/sizeof(struct spid2fw_mapping)
+static struct spid2fw_mapping *matched_spid2fw = NULL; /* query once, use multiple times */
+
+static void tng_copyfw(char *fw_name, char *island_name, int *sep_key, struct spid2fw_mapping *p)
 {
-	const struct firmware *raw = NULL;
-	const int vrl_header_size = VRL_SZ;
-	int ret = -1;
+	if (!strncmp(island_name, "VED", 3))
+		strcpy(fw_name, p->msvdx_fw);
+	else if (!strncmp(island_name, "VEC", 3))
+		strcpy(fw_name, p->topaz_fw);
+	else if (!strncmp(island_name, "VSP", 3))
+		strcpy(fw_name, p->vsp_fw);
 
-	/* upload fw VRL header */
-	ret = request_firmware(&raw, fw_name, &dev->pdev->dev);
-	if (raw == NULL || ret < 0) {
-		DRM_ERROR("Failed to request firmware %s, ret =  %d\n", fw_name, ret);
-		goto out;
-	}
-
-	if (vrl_header_size > raw->size) {
-		DRM_ERROR("invalid FW: FW size (%d) < VRL header size(%d)\n",
-			raw->size, vrl_header_size);
-		ret = -1;
-		goto out;
-	}
-
-	PSB_DEBUG_INIT("Try to copy VRL header into IMR region\n");
-	memcpy(imr_ptr, raw->data, vrl_header_size);
-
-	/* validate VRL header */
-#ifdef CONFIG_DX_SEP54
-	PSB_DEBUG_INIT("Try to validate VRL header for %s\n", fw_name);
-	ret = sepapp_key_validity_check((u8 *)imr_addr, vrl_header_size, 0);
-	if (ret) {
-		DRM_ERROR("firmware %s is invalid, ret %x\n", fw_name, ret);
-		goto out;
-	}
-	PSB_DEBUG_INIT("FW %s is valid\n", fw_name);
-#else
-	DRM_ERROR("sep module is not compiled in");
-#endif
-
-out:
-	if (raw)
-		release_firmware(raw);
-
-	return ret;
-}
-
-static int tng_get_fwinfo(struct drm_device *dev, char *fw_name,
-	char *fw_basename, int *sep_key, unsigned char *imr_ptr, uint64_t imr_addr)
-{
-	int i, ret;
-	const int key = 15;
-
-	/* set key */
 	if (drm_video_sepkey == -1)
-		*sep_key = key;
+		*sep_key = p->sep_key;
 	else
 		*sep_key = drm_video_sepkey;
 
-	PSB_DEBUG_INIT("sep key is %d\n", *sep_key);
+	return;
+}
 
-	/* check if verification FW is valid */
-	snprintf(fw_name, FW_NAME_LEN, "%s.bin.%s", fw_basename, verf_suffix);
-	ret = tng_checkfw(dev, fw_name, imr_ptr, *sep_key, imr_addr);
-	if (ret == 0)
-		return ret;
+static void tng_spid2fw(struct drm_device *dev, char *fw_name, char *fw_basename, char *island_name, int *sep_key)
+{
+	const struct firmware *raw = NULL;
+	int ret;
 
-	/* verfication FW is invalid, check if production FW is valid */
-	snprintf(fw_name, FW_NAME_LEN, "%s.bin.%s", fw_basename, prod_suffix);
-	ret = tng_checkfw(dev, fw_name, imr_ptr, *sep_key, imr_addr);
-	if (ret == 0)
-		return ret;
+	/* already get the matched entry in spid2fw table */
+	if (matched_spid2fw) {
+		tng_copyfw(fw_name, island_name, sep_key, matched_spid2fw);
+		return;
+	}
 
-	return -1;
+	/* find a matched entry */
+	if (matched_spid2fw != NULL) {
+		tng_copyfw(fw_name,  island_name, sep_key, matched_spid2fw);
+		PSB_DEBUG_INIT("Got matched firmware %s\n", fw_name);
+		return;
+	}
+
+	/*
+	 * No entry in the table, fake one
+	 * Firstly try if we have the firmware like mvsdx.bin.0004.0002.000d
+	 */
+	DRM_ERROR("Cannot find pre-defined firmware for this spid, try to detect %s firmware\n", fw_basename);
+
+	snprintf(fw_name, FW_NAME_LEN, "%s.bin." mofd_default_spid, fw_basename);
+	ret = request_firmware(&raw, fw_name, &dev->pdev->dev);
+	if (raw == NULL || ret < 0) { /* there is no mvsdx.bin.0004.0002.000d */
+		DRM_ERROR("There is no firmware %s, try to use the default device firmware\n", fw_name);
+		matched_spid2fw = &default_mofd_spid2fw;
+		tng_copyfw(fw_name,  island_name, sep_key, matched_spid2fw);
+		return;
+	}
+	/*
+	 * We have firmware like mvsdx.bin.0004.0002.000d
+	 * Fake one entry in the table for other islands
+	 */
+	release_firmware(raw);
+
+	PSB_DEBUG_INIT("Detect %s firmware %s success! Fake entries for all the other islands\n", fw_basename, fw_name);
+
+	matched_spid2fw = &spid2fw[SPID2FW_NUMBER - 1];
+
+	matched_spid2fw->msvdx_fw = default_msvdx;
+	snprintf(matched_spid2fw->msvdx_fw, FW_NAME_LEN, "msvdx.bin." mofd_default_spid);
+
+	matched_spid2fw->topaz_fw = default_topaz;
+	snprintf(matched_spid2fw->topaz_fw, FW_NAME_LEN, "topaz.bin." mofd_default_spid);
+
+	matched_spid2fw->vsp_fw = default_vsp;
+	snprintf(matched_spid2fw->vsp_fw, FW_NAME_LEN, "vsp.bin." mofd_default_spid);
+
+	/* force the sep key with the nearest one*/
+	matched_spid2fw->sep_key =  default_mofd_spid2fw.sep_key;
+
+	tng_copyfw(fw_name, island_name, sep_key, matched_spid2fw);
+	return;
+}
+
+static void tng_get_fwinfo(struct drm_device *dev, char *fw_name, char *fw_basename, char *island_name, int *sep_key)
+{
+	tng_spid2fw(dev, fw_name, fw_basename, island_name, sep_key);
+	PSB_DEBUG_INIT("Use firmware %s for %s, SEP key %d\n", fw_name, island_name, *sep_key);
 }
 
 static void tng_print_imrinfo(int imrl_reg, uint64_t imr_base, uint64_t imr_end)
@@ -226,13 +302,12 @@ static void tng_securefw_postvsp(struct drm_device *dev)
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct vsp_private *vsp_priv = dev_priv->vsp_private;
 
-	vsp_priv->ctrl = (struct vsp_ctrl_reg *) (dev_priv->vsp_reg +
-						  VSP_CONFIG_REG_SDRAM_BASE +
-						  VSP_CONFIG_REG_START);
-
 	vsp_priv->fw_loaded = VSP_FW_LOADED;
 	vsp_priv->vsp_state = VSP_STATE_DOWN;
 
+	vsp_priv->ctrl = (struct vsp_ctrl_reg *) (dev_priv->vsp_reg +
+						  VSP_CONFIG_REG_SDRAM_BASE +
+						  VSP_CONFIG_REG_START);
 }
 
 int tng_securefw(struct drm_device *dev, char *fw_basename, char *island_name, int imrl_reg)
@@ -242,66 +317,54 @@ int tng_securefw(struct drm_device *dev, char *fw_basename, char *island_name, i
 	unsigned char *imr_ptr;
 	uint64_t imr_addr;
 	int ret = 0, sep_key, fw_size;
-	const int vrl_header_size = VRL_SZ;
 
-	PSB_DEBUG_INIT("Try to get IMR region information\n");
-	tng_get_imrinfo(imrl_reg, &imr_addr);
-
-	PSB_DEBUG_INIT("Try to map IMR region\n");
-	imr_ptr = ioremap(imr_addr, VRL_SZ);
-	if (!imr_ptr) {
-		DRM_ERROR("Failed to map IMR region\n");
-		return 1;
-	}
-
-	ret = tng_get_fwinfo(dev, fw_name, fw_basename, &sep_key, imr_ptr, imr_addr);
-	if (ret) {
-		DRM_ERROR("failed to get fwinfo for %s\n", fw_basename);
-		goto out;
-	}
-	PSB_DEBUG_INIT("Use firmware %s for %s, SEP key %d\n", fw_name, sep_key);
-
-	PSB_DEBUG_INIT("Try to unmap IMR region\n");
-	if (imr_ptr) {
-		iounmap(imr_ptr);
-		imr_ptr = NULL;
-	}
+	tng_get_fwinfo(dev, fw_name, fw_basename, island_name, &sep_key);
 
 	/* try to load firmware from storage */
 	PSB_DEBUG_INIT("Try to request firmware %s\n", fw_name);
 	ret = request_firmware(&raw, fw_name, &dev->pdev->dev);
 	if (raw == NULL || ret < 0) {
 		DRM_ERROR("Failed to request firmware %s, ret =  %d\n", fw_name, ret);
-		goto out;
-	}
-
-	PSB_DEBUG_INIT("Try to map IMR region\n");
-	imr_ptr = ioremap(imr_addr, raw->size);
-	if (!imr_ptr) {
-		DRM_ERROR("Failed to map IMR region\n");
-		ret = -1;
-		goto out;
+		return ret;
 	}
 
 	if (!strncmp(island_name, "VSP", 3)) {
 		ret = tng_securefw_prevsp(dev, raw);
 		if (ret) {
 			DRM_ERROR("VSP sanity check failed\n");
-			goto out;
+			release_firmware(raw);
+			return ret;
 		}
+	}
+
+	PSB_DEBUG_INIT("Try to get IMR region information\n");
+	tng_get_imrinfo(imrl_reg, &imr_addr);
+
+	PSB_DEBUG_INIT("Try to map IMR region\n");
+	imr_ptr = ioremap(imr_addr, raw->size);
+	if (!imr_ptr) {
+		DRM_ERROR("Failed to map IMR region\n");
+		release_firmware(raw);
+		return 1;
 	}
 
 	fw_size = raw->size;
 	PSB_DEBUG_INIT("Try to copy firmware into IMR region\n");
 	memcpy(imr_ptr, raw->data, fw_size);
 
+	PSB_DEBUG_INIT("Try to unmap IMR region\n");
+	iounmap(imr_ptr);
+
+	PSB_DEBUG_INIT("Try to release firmware\n");
+	release_firmware(raw);
+
 #ifdef CONFIG_DX_SEP54
 	PSB_DEBUG_INIT("Try to verify firmware\n");
 	ret = sepapp_image_verify((u8 *)imr_addr, fw_size, sep_key,
-		ISLAND_MAGIC_NUMBER(island_name));
+				  ISLAND_MAGIC_NUMBER(island_name));
 	if (ret) {
 		DRM_ERROR("Failed to verify firmware %x\n", ret);
-		goto out;
+		return ret;
 	}
 	PSB_DEBUG_INIT("After verification, IMR region information\n");
 	tng_print_imrinfo(imrl_reg, 0, 0);
@@ -309,15 +372,6 @@ int tng_securefw(struct drm_device *dev, char *fw_basename, char *island_name, i
 
 	if (!strncmp(island_name, "VSP", 3))
 		tng_securefw_postvsp(dev);
-
-out:
-	PSB_DEBUG_INIT("Try to release firmware\n");
-	if (raw)
-		release_firmware(raw);
-
-	PSB_DEBUG_INIT("Try to unmap IMR region\n");
-	if (imr_ptr)
-		iounmap(imr_ptr);
 
 	return ret;
 }

@@ -51,6 +51,10 @@ typedef enum {
 	DC_MRFLD_FLIP_CONTEXT,
 } DC_MRFLD_FLIP_OP;
 
+/* ied session clean-up */
+#define MAX_IED_SESSIONS    8
+extern int sepapp_drm_playback(bool ied_status);
+
 /* max count of plane contexts which share the same buffer*/
 #define MAX_CONTEXT_COUNT   3
 
@@ -168,9 +172,6 @@ typedef struct {
 	IMG_HANDLE hConfigData;
 	IMG_UINT32 uiSwapInterval;
 	IMG_UINT32 uiPowerIslands;
-	IMG_UINT32 uiPrimaryFlip;
-	IMG_UINT32 uiOverlayFlip;
-	IMG_UINT32 uiSpriteFlip;
 	DC_MRFLD_BUFFER *pasBuffers[0];
 } DC_MRFLD_FLIP;
 

@@ -68,7 +68,6 @@
 #include <linux/interrupt.h>
 #include <linux/types.h>
 
-#include "psb_powermgmt.h"
 #include "otm_hdmi.h"
 #include "hdmi_internal.h"
 #include "ips_hdmi.h"
@@ -271,16 +270,18 @@ void ips_hdmi_save_display_registers(hdmi_device_t *dev)
 	dev->reg_state.saveDSPBCNTR = hdmi_read32(IPS_DSPBCNTR);
 	dev->reg_state.saveDSPBSTATUS = hdmi_read32(IPS_DSPBSTAT);
 
-	/*save palette (gamma) */
-	for (i = 0; i < 256; i++)
-		dev->reg_state.save_palette_b[i] =
-			hdmi_read32(IPS_PALETTE_B + (i<<2));
-
 	dev->reg_state.savePFIT_CONTROL = hdmi_read32(IPS_PFIT_CONTROL);
 	dev->reg_state.savePFIT_PGM_RATIOS = hdmi_read32(IPS_PFIT_PGM_RATIOS);
 	dev->reg_state.saveHDMIPHYMISCCTL = hdmi_read32(IPS_HDMIPHYMISCCTL);
 	dev->reg_state.saveHDMIB_CONTROL = hdmi_read32(IPS_HDMIB_CONTROL);
 	dev->reg_state.saveHDMIB_DATALANES = hdmi_read32(IPS_HDMIB_LANES02);
+
+	/*save palette (gamma) */
+	for (i = 0; i < 256; i++) {
+		dev->reg_state.save_palette_b[i] =
+			hdmi_read32(IPS_PALETTE_B + (i<<2));
+		udelay(2);
+	}
 
 	dev->reg_state.valid = true;
 }
@@ -335,6 +336,53 @@ void ips_hdmi_save_data_island(hdmi_device_t *dev)
 }
 
 /**
+ * Description:	get vic data from data island packets
+ *
+ * @dev:	hdmi_device_t
+ *
+ * Returns:	vic
+ */
+uint8_t ips_hdmi_get_vic_from_data_island(hdmi_device_t *dev)
+{
+	uint8_t vic = 0;
+	uint32_t index = 0;
+	uint32_t reg_val = 0;
+	uint8_t data[HDMI_DIP_PACKET_DATA_LEN];
+	uint32_t * data32 = (uint32_t *) (&data[0]);
+
+	if (NULL == dev)  {
+		pr_debug("\n%s invalid argument\n", __func__);
+		return 0;
+	}
+
+	/* Save AVI Infoframe Data */
+	reg_val = hdmi_read32(IPS_HDMI_VID_DIP_CTL_ADDR);
+	if (reg_val & IPS_HDMI_EN_DIP_TYPE_AVI) {
+		/* set DIP buffer index to AVI */
+		reg_val &= ~IPS_HDMI_DIP_BUFF_INDX_MASK;
+		reg_val |= IPS_HDMI_DIP_BUFF_INDX_AVI;
+		hdmi_write32(IPS_HDMI_VID_DIP_CTL_ADDR, reg_val);
+		/* set DIP RAM Access Address to 0 */
+		reg_val &= ~IPS_HDMI_DIP_ACCESS_ADDR_MASK;
+		hdmi_write32(IPS_HDMI_VID_DIP_CTL_ADDR, reg_val);
+
+		/* copy header */
+		reg_val = hdmi_read32(IPS_HDMI_VIDEO_DIP_DATA_ADDR);
+
+		/* copy data */
+		for (index = 0; index < (HDMI_DIP_PACKET_DATA_LEN/4); index++) {
+			data32[index] =
+				hdmi_read32(IPS_HDMI_VIDEO_DIP_DATA_ADDR);
+		}
+		/* set data valid */
+		vic = data[AVI_VIC_LOC];
+	}
+
+	return vic;
+}
+
+
+/**
  * Description: disable HDMI display
  *
  * @dev:	hdmi_device_t
@@ -351,9 +399,6 @@ void ips_disable_hdmi(hdmi_device_t *dev)
 		return;
 	}
 
-	if (!ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND, OSPM_UHB_ONLY_IF_ON)) {
-		return;
-	}
 	/* Disable display plane */
 	temp = hdmi_read32(IPS_DSPBCNTR);
 	if ((temp & IPIL_DSP_PLANE_ENABLE) != 0) {
@@ -381,7 +426,6 @@ void ips_disable_hdmi(hdmi_device_t *dev)
 		}
 	}
 
-	ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
 }
 
 /**

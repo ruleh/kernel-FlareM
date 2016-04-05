@@ -85,6 +85,10 @@
 #define MAX_VP8_CONTEXT_NUM 3
 #define MAX_VPP_CONTEXT_NUM 1
 
+#define CONTEXT_VPP_ID      0
+#define CONTEXT_VP8_ID      1
+#define CONTEXT_COMPOSE_ID  5
+
 static const unsigned int vsp_processor_base[] = {
 				SP0_SP_REG_BASE,
 				SP1_SP_REG_BASE,
@@ -94,56 +98,62 @@ static const unsigned int vsp_processor_base[] = {
 				};
 
 /* help macro */
-#define MM_VSP_WRITE32(base, offset, value)					\
+#ifdef MM_WRITE32
+#undef MM_WRITE32
+#endif
+#define MM_WRITE32(base, offset, value)				\
 	do {								\
-		*((uint32_t *)((unsigned char *)(dev_priv->vsp_reg) \
-				    + base + offset)) = value;		\
+		*((uint32_t *)((unsigned char *)(dev_priv->vsp_reg)	\
+			       + base + offset)) = value;		\
 	} while (0)
 
-#define MM_VSP_READ32(base, offset, pointer)				\
+#ifdef MM_READ32
+#undef MM_READ32
+#endif
+#define MM_READ32(base, offset, pointer)				\
 	do {								\
 		*(pointer) =						\
 			*((uint32_t *)((unsigned char *)		\
-					    (dev_priv->vsp_reg)		\
-						 + base + offset));	\
+				       (dev_priv->vsp_reg)		\
+				       + base + offset));		\
 	} while (0)
 
 #define SP1_DMEM_WRITE32(offset, value)		\
-	MM_VSP_WRITE32(SP1_SP_DMEM_IP, offset, value)
+	MM_WRITE32(SP1_SP_DMEM_IP, offset, value)
 #define SP1_DMEM_READ32(offset, pointer)	\
-	MM_VSP_READ32(SP1_SP_DMEM_IP, offset, pointer)
+	MM_READ32(SP1_SP_DMEM_IP, offset, pointer)
 
 #define SP_REG_WRITE32(offset, value, processor)			 \
 	do {								 \
-		MM_VSP_WRITE32(vsp_processor_base[processor], offset, value); \
+		MM_WRITE32(vsp_processor_base[processor], offset, value); \
 	} while (0)
 
 #define SP_REG_READ32(offset, pointer, processor)		\
 	do {							\
-		MM_VSP_READ32(vsp_processor_base[processor], offset, pointer); \
+		MM_READ32(vsp_processor_base[processor], offset, pointer); \
 	} while (0)
 
 
 #define SP0_REG_WRITE32(offset, value)		\
-	MM_VSP_WRITE32(SP0_SP_REG_BASE, offset, value)
+	MM_WRITE32(SP0_SP_REG_BASE, offset, value)
 #define SP0_REG_READ32(offset, pointer)		\
-	MM_VSP_READ32(SP0_SP_REG_BASE, offset, pointer)
+	MM_READ32(SP0_SP_REG_BASE, offset, pointer)
 
 #define SP1_REG_WRITE32(offset, value)		\
-	MM_VSP_WRITE32(SP1_SP_REG_BASE, offset, value)
+	MM_WRITE32(SP1_SP_REG_BASE, offset, value)
 #define SP1_REG_READ32(offset, pointer)		\
 	MM_READ32(SP1_SP_REG_BASE, offset, pointer)
 
 #define CONFIG_REG_WRITE32(offset, value)			\
-	MM_VSP_WRITE32(VSP_CONFIG_REG_SDRAM_BASE, ((offset) * 4), value)
+	MM_WRITE32(VSP_CONFIG_REG_SDRAM_BASE, ((offset) * 4), value)
 #define CONFIG_REG_READ32(offset, pointer)			\
-	MM_VSP_READ32(VSP_CONFIG_REG_SDRAM_BASE, ((offset) * 4), pointer)
+	MM_READ32(VSP_CONFIG_REG_SDRAM_BASE, ((offset) * 4), pointer)
 
 #define PAGE_TABLE_SHIFT PAGE_SHIFT
-#define INVALID_MMU MM_VSP_WRITE32(0, MMU_INVALID, 0x1)
+#define INVALID_MMU MM_WRITE32(0, MMU_INVALID, 0x1)
 #define SET_MMU_PTD(address)						\
 	do {								\
-		MM_VSP_WRITE32(0, MMU_TABLE_ADDR, address);			\
+		MM_WRITE32(0, MMU_TABLE_ADDR, address);			\
 	} while (0)
 
 #define VSP_SET_FLAG(val, offset) \
@@ -156,9 +166,9 @@ static const unsigned int vsp_processor_base[] = {
 	((val) = (val ^ (0x1 << (offset))))
 
 #define IRQ_REG_WRITE32(offset, value)		\
-	MM_VSP_WRITE32(VSP_IRQ_REG_BASE, offset, value)
+	MM_WRITE32(VSP_IRQ_REG_BASE, offset, value)
 #define IRQ_REG_READ32(offset, pointer)		\
-	MM_VSP_READ32(VSP_IRQ_REG_BASE, offset, pointer)
+	MM_READ32(VSP_IRQ_REG_BASE, offset, pointer)
 
 #define VSP_NEW_PMSTATE(drm_dev, vsp_priv, new_state)			\
 do {									\

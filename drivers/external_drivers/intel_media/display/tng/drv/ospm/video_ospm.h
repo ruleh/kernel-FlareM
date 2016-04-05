@@ -37,13 +37,13 @@
 #define PMU_DEC			0x1
 
 void ospm_vsp_init(struct drm_device *dev,
-			struct ospm_power_island *p_island);
+		   struct ospm_power_island *p_island);
 
 void ospm_ved_init(struct drm_device *dev,
-			struct ospm_power_island *p_island);
+		   struct ospm_power_island *p_island);
 
 void ospm_vec_init(struct drm_device *dev,
-			struct ospm_power_island *p_island);
+		   struct ospm_power_island *p_island);
 
 int psb_msvdx_get_ved_freq(u32 reg_freq);
 

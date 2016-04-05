@@ -126,6 +126,7 @@ int psb_msvdx_core_reset(struct drm_psb_private *dev_priv)
 {
 	int ret = 0;
 	struct msvdx_private *msvdx_priv = dev_priv->msvdx_private;
+
 	/* Enable Clocks */
 	PSB_DEBUG_GENERAL("Enabling clocks\n");
 	psb_msvdx_mtx_set_clocks(dev_priv->dev, clk_enable_all);
@@ -367,7 +368,7 @@ static ssize_t ved_freq_scaling_store(struct device *dev,
 		if ((freq_code ^ IP_FREQ_RESUME_SET) == 0) {
 			psb_set_freq_control_switch(true);
 		} else {
-			printk(KERN_ERR "%s: invalid freq_code %d\n", __func__, freq_code);
+			printk(KERN_ERR "%s: invalid freq_code %d\n", buf, freq_code);
 		}
 	}
 	return size;
@@ -696,6 +697,10 @@ static int msvdx_startup_init(struct drm_device *dev)
 	INIT_LIST_HEAD(&msvdx_priv->msvdx_queue);
 	mutex_init(&msvdx_priv->msvdx_mutex);
 	spin_lock_init(&msvdx_priv->msvdx_lock);
+#ifdef CONFIG_ION
+	INIT_LIST_HEAD(&msvdx_priv->ion_buffers_list);
+	mutex_init(&msvdx_priv->ion_buf_list_lock);
+#endif
 #ifndef CONFIG_DRM_VXD_BYT
 	/*figure out the stepping */
 	pci_read_config_byte(dev->pdev, PSB_REVID_OFFSET, &psb_rev_id);
@@ -925,6 +930,7 @@ int psb_msvdx_post_init(struct drm_device *dev)
         msvdx_priv = dev_priv->msvdx_private;
 
         msvdx_priv->msvdx_busy = 0;
+        msvdx_priv->msvdx_hw_busy = 1;
 
         if (msvdx_priv->fw_loaded_by_punit) {
                 /* DDK: Configure MSVDX Memory Stalling iwth the min, max and ratio of access */

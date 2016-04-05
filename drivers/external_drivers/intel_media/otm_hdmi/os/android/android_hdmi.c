@@ -82,21 +82,23 @@
 #ifdef OTM_HDMI_HDCP_ENABLE
 #include "hdcp_api.h"
 #endif
+#ifdef CONFIG_SUPPORT_MIPI
 #include "mdfld_dsi_output.h"
+#endif
 
 /* Include file for sending uevents */
 #include "psb_umevents.h"
-
-#ifdef CONFIG_DRM_INTEL_HANDSET
-/* Include dc_maxfifo.h for disabling s0i1 display */
-#include "dc_maxfifo.h"
-#endif
 
 /* External state dependency */
 extern int hdmi_state;
 
 /* External default scaling mode dependency */
 extern int default_hdmi_scaling_mode;
+
+#ifdef CONFIG_ITE_HDMI_CEC
+/* External EDID Source Physical Address*/
+extern int hdmi_edid_src_phy_addr;
+#endif
 
 static const struct {
 	int width, height, htotal, vtotal, dclk, vrefr, vic, par;
@@ -230,14 +232,9 @@ static irqreturn_t __hdmi_irq_handler_bottomhalf(void *data)
 {
 	struct android_hdmi_priv *hdmi_priv = data;
 	static int processed_hdmi_status = -1;
-	struct drm_device *dev;
-	struct drm_psb_private *dev_priv;
 
 	if (hdmi_priv == NULL || !hdmi_priv->dev)
 		return IRQ_HANDLED;
-
-	dev = hdmi_priv->dev;
-	dev_priv = dev->dev_private;
 
 	if (!ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND,
 			OSPM_UHB_FORCE_POWER_ON)) {
@@ -249,28 +246,49 @@ static irqreturn_t __hdmi_irq_handler_bottomhalf(void *data)
 		struct drm_connector *connector = NULL;
 		struct i2c_adapter *adapter = NULL;
 		bool hdmi_status = 0;
+		bool current_status = 0;
+		int hdmi_detect_count = 3;
+		int hdmi_detect_sleep_time= 0;
+		int hdmi_detect_exit_count = 50;
 		char *uevent_string = NULL;
 
 		otm_hdmi_power_rails_on();
+
 		/* Check HDMI status, read EDID only if connected */
 		hdmi_status = otm_hdmi_get_cable_status(hdmi_priv->context);
 
-		/* if the cable status has not changed return */
-		if (hdmi_status == processed_hdmi_status) {
+		/* shorten sleep time for hdcp comppliance test 1a-02 */
+		hdmi_detect_sleep_time = (hdmi_status == false) ? 10 : 60;
+
+		do {
+			/* Debounce for at least 60ms in order for the
+			* cable status to have stabilized for next detection.
+			* Check its status to make sure same for 3 times.
+			*/
+			msleep(hdmi_detect_sleep_time);
+			current_status =
+				otm_hdmi_get_cable_status(hdmi_priv->context);
+			if (hdmi_status != current_status) {
+				hdmi_status = current_status;
+				hdmi_detect_count = 3;
+				hdmi_detect_sleep_time =
+					(hdmi_status == false) ? 10 : 60;
+			}
+		} while (hdmi_detect_count-- && hdmi_detect_exit_count--);
+
+		/* if the cable status has not changed/stable return */
+		if (hdmi_status == processed_hdmi_status ||
+			hdmi_detect_exit_count == 0) {
+			if (hdmi_detect_exit_count == 0)
+				pr_err("%s: HDMI cable status not stable!\n", __func__);
+			else
+				pr_info("%s: HDMI cable status not changed!\n", __func__);
 			if (!hdmi_status)
 				otm_hdmi_power_rails_off();
 			ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
 			return IRQ_HANDLED;
 		}
 
-		if (hdmi_status) {
-			/* Debounce for atleast 60ms in order for the
-			* cable status to have stabilized
-			*/
-			msleep(60);
-			hdmi_status =
-				otm_hdmi_get_cable_status(hdmi_priv->context);
-		}
 		processed_hdmi_status = hdmi_status;
 
 #ifdef OTM_HDMI_HDCP_ENABLE
@@ -320,19 +338,15 @@ static irqreturn_t __hdmi_irq_handler_bottomhalf(void *data)
 		}
 exit:
 		/* Notify user space */
-		pr_debug("%s: HDMI hot plug state  = %d\n", __func__, hdmi_status);
-
-#ifdef CONFIG_DRM_INTEL_HANDSET
-		/* Turn off maxfifo/S0i1 display*/
-		if (is_panel_vid_or_cmd(dev) == MDFLD_DSI_ENCODER_DPI)
-			exit_maxfifo_mode(dev);
-#endif
+		pr_info("%s: HDMI hot plug state  = %d\n", __func__, hdmi_status);
 
 		if (hdmi_status) {
 			/* hdmi_state indicates that hotplug event happens */
 			hdmi_state = 1;
 			uevent_string = "HOTPLUG_IN=1";
 			psb_sysfs_uevent(hdmi_priv->dev, uevent_string);
+			/* delay updating audio state until mode setting is finished*/
+			hdmi_priv->delayed_audio_hotplug = true;
 		} else {
 			otm_hdmi_power_rails_off();
 			hdmi_state = 0;
@@ -340,12 +354,16 @@ exit:
 			uevent_string = "HOTPLUG_OUT=1";
 			psb_sysfs_uevent(hdmi_priv->dev, uevent_string);
 
+			mid_hdmi_audio_signal_event(hdmi_priv->dev, HAD_EVENT_HOT_UNPLUG);
 			switch_set_state(&hdmi_priv->sdev, 0);
-			pr_info("%s: hdmi state switched to %d\n", __func__,
-				hdmi_priv->sdev.state);
 		}
 
-		drm_helper_hpd_irq_event(hdmi_priv->dev);
+		/* drm_helper_hpd_irq_event(hdmi_priv->dev); */
+		/* force mode setting as connector status can be polluted by
+		  * user space's querying of connection status in response to
+		  * hot plug event. 
+		  */
+		drm_kms_helper_hotplug_event(hdmi_priv->dev);
 	}
 	ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
 	return IRQ_HANDLED;
@@ -462,11 +480,13 @@ void android_hdmi_driver_setup(struct drm_device *dev)
 	hdmi_priv->hdmib_reg = HDMIB_CONTROL;
 	hdmi_priv->monitor_type = MONITOR_TYPE_HDMI;
 	hdmi_priv->is_hdcp_supported = true;
+	/* delay setting hdmi switch state till mode setting is completed*/
+	hdmi_priv->delayed_audio_hotplug = true;
 
 	dev_priv->hdmi_priv = (void *)hdmi_priv;
 
 	/* Register hdmi switch_dev */
-	hdmi_priv->sdev.name = "hdmi";
+	hdmi_priv->sdev.name = "hdmi_audio";
 	if (switch_dev_register(&hdmi_priv->sdev) < 0) {
 		pr_err("%s: Hdmi switch registration failed\n", __func__);
 		goto free;
@@ -663,6 +683,20 @@ int android_hdmi_mode_valid(struct drm_connector *connector,
 	}
 
 	if (mode->vdisplay > OTM_HDMI_MAX_VDISPLAY) {
+		ret = MODE_BAD_VVALUE;
+		goto err;
+	}
+
+	if (!(((mode->hdisplay == 1920) && (mode->vdisplay == 1080)) ||
+	    ((mode->hdisplay == 1280) && (mode->vdisplay == 720)) ||
+	    ((mode->hdisplay == 720) && (mode->vdisplay == 576)) ||
+	    ((mode->hdisplay == 720) && (mode->vdisplay == 480)) ||
+	    ((mode->hdisplay == 640) && (mode->vdisplay == 480)))) {
+		ret = MODE_BAD_VVALUE;
+		goto err;
+	}
+
+	if ((mode->vrefresh < 24) || (mode->vrefresh > 60)) {
 		ret = MODE_BAD_VVALUE;
 		goto err;
 	}
@@ -1001,6 +1035,147 @@ static int calculate_refresh_rate(struct drm_display_mode *mode)
 }
 
 /**
+ * Query HDMI setting from FW when first boot up
+ * @hdisplay	:  hactive timing set by FW
+ * @vdisplay	:  vactive timing set by FW
+ *
+ * Returns ture on success and false else
+ */
+static bool query_fw_hdmi_setting(struct drm_device *dev,
+				  uint32_t *hdisplay,
+				  uint32_t *vdisplay,
+				  uint8_t *vic,
+				  int * monitor_type)
+{
+	uint32_t htotal, vtotal;
+	struct drm_psb_private *dev_priv;
+	struct android_hdmi_priv *hdmi_priv;
+
+	if (NULL == dev)
+		return false;
+	dev_priv = dev->dev_private;
+	if (NULL == dev_priv)
+		return false;
+	hdmi_priv = dev_priv->hdmi_priv;
+	if (NULL == hdmi_priv)
+		return false;
+
+
+	if (!ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND,
+				OSPM_UHB_FORCE_POWER_ON))
+		return false;
+
+	htotal = REG_READ(HTOTAL_B);
+	vtotal = REG_READ(VTOTAL_B);
+
+	*vic = otm_hdmi_get_vic(hdmi_priv->context);
+
+	if (REG_READ(VIDEO_DIP_CTL) & EN_DIP)
+		*monitor_type = MONITOR_TYPE_HDMI;
+	else
+		*monitor_type = MONITOR_TYPE_DVI;
+
+	if (htotal != 0 && vtotal != 0) {
+		*hdisplay = ((htotal + 1) << 16) >> 16;
+		*vdisplay = ((vtotal + 1) << 16) >> 16;
+	        pr_info("%s:fw set htotal=0x%x vtotal=0x%x! vic=%d monitor_type=%d\n",
+				__func__, htotal, vtotal, *vic, *monitor_type);
+	}
+
+	ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
+
+	return true;
+}
+
+/**
+ * helper function to convert drm_display_mode to otm_hdmi_timing.
+ * @otm_mode:		otm hdmi mode to be populated
+ * @drm_mode:		drm_display_mode
+ *
+ * Returns:	none.
+ */
+static void __android_hdmi_drm_mode_to_otm_timing(otm_hdmi_timing_t *otm_mode,
+				struct drm_display_mode *drm_mode)
+{
+	uint8_t i = 0;
+	uint32_t par = OTM_HDMI_PAR_NO_DATA;
+
+	if (otm_mode == NULL || drm_mode == NULL)
+		return;
+
+	otm_mode->width			= (unsigned short)
+						drm_mode->crtc_hdisplay;
+	otm_mode->height		= (unsigned short)
+						drm_mode->crtc_vdisplay;
+	otm_mode->dclk			= (unsigned long)
+						drm_mode->clock;
+	otm_mode->htotal		= (unsigned short)
+						drm_mode->crtc_htotal;
+	otm_mode->hblank_start		= (unsigned short)
+						drm_mode->crtc_hblank_start;
+	otm_mode->hblank_end		= (unsigned short)
+						drm_mode->crtc_hblank_end;
+	otm_mode->hsync_start		= (unsigned short)
+						drm_mode->crtc_hsync_start;
+	otm_mode->hsync_end		= (unsigned short)
+						drm_mode->crtc_hsync_end;
+	otm_mode->vtotal		= (unsigned short)
+						drm_mode->crtc_vtotal;
+	otm_mode->vblank_start		= (unsigned short)
+						drm_mode->crtc_vblank_start;
+	otm_mode->vblank_end		= (unsigned short)
+						drm_mode->crtc_vblank_end;
+	otm_mode->vsync_start		= (unsigned short)
+						drm_mode->crtc_vsync_start;
+	otm_mode->vsync_end		= (unsigned short)
+						drm_mode->crtc_vsync_end;
+
+	otm_mode->mode_info_flags = 0;
+	if (drm_mode->flags & DRM_MODE_FLAG_INTERLACE)
+		otm_mode->mode_info_flags |= PD_SCAN_INTERLACE;
+
+	if (drm_mode->flags & DRM_MODE_FLAG_PAR4_3) {
+		otm_mode->mode_info_flags |= OTM_HDMI_PAR_4_3;
+		par = OTM_HDMI_PAR_4_3;
+	} else if (drm_mode->flags & DRM_MODE_FLAG_PAR16_9) {
+		otm_mode->mode_info_flags |= OTM_HDMI_PAR_16_9;
+		par = OTM_HDMI_PAR_16_9;
+	}
+
+	if (drm_mode->flags & DRM_MODE_FLAG_PHSYNC)
+		otm_mode->mode_info_flags |= PD_HSYNC_HIGH;
+
+	if (drm_mode->flags & DRM_MODE_FLAG_PVSYNC)
+		otm_mode->mode_info_flags |= PD_VSYNC_HIGH;
+
+	otm_mode->metadata = 0;
+	for (i = 0; i < ARRAY_SIZE(vic_formats); i++) {
+		if (otm_mode->width == vic_formats[i].width &&
+			otm_mode->height == vic_formats[i].height &&
+			otm_mode->htotal == vic_formats[i].htotal &&
+			otm_mode->vtotal == vic_formats[i].vtotal &&
+			__android_check_clock_match(otm_mode->dclk, vic_formats[i].dclk) &&
+			par == vic_formats[i].par) {
+			if (1 == cmdline_mode.specified &&
+				1 == cmdline_mode.vic_specified) {
+				if (cmdline_mode.vic == vic_formats[i].vic) {
+					otm_mode->metadata = cmdline_mode.vic;
+					break;
+				}
+				/* else continue */
+			} else {
+				otm_mode->metadata = vic_formats[i].vic;
+				pr_debug("Assigning vic %d to mode %dx%d@%d, flags=%#x.\n",
+					(int)otm_mode->metadata, otm_mode->width,
+					otm_mode->height, (int)otm_mode->dclk,
+					(int)otm_mode->mode_info_flags);
+				break;
+			}
+		}
+	}
+}
+
+/**
  * DRM get modes helper routine
  * @connector	: handle to drm_connector
  *
@@ -1017,19 +1192,25 @@ int android_hdmi_get_modes(struct drm_connector *connector)
 	struct drm_device *dev = connector->dev;
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct android_hdmi_priv *hdmi_priv = dev_priv->hdmi_priv;
+#ifdef CONFIG_ITE_HDMI_CEC
+	hdmi_context_t *ctx = hdmi_priv->context;
+#endif
 	struct edid *edid = NULL;
 	/* Edid address in HDMI context */
 	struct edid *ctx_edid = NULL;
+#ifdef CONFIG_ITE_HDMI_CEC
+	edid_info_t *edid_info;
+#endif
 	struct drm_display_mode *mode, *t;
 	int i = 0, j = 0, ret = 0;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
-	struct drm_display_mode *dup_mode, *user_mode;
-	int mode_present = 0;
-#endif
 	int refresh_rate = 0;
 	bool pref_mode_found = false;
 	struct i2c_adapter *adapter = NULL;
 	struct drm_display_mode *pref_mode_assigned;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
+	struct drm_display_mode *dup_mode, *user_mode;
+	int mode_present = 0
+#endif
 
 	debug_modes_count = 0;
 	pr_debug("Enter %s\n", __func__);
@@ -1084,6 +1265,10 @@ edid_is_ready:
 	 */
 	if (otm_hdmi_edid_extension_parse(hdmi_priv->context, ctx_edid,
 			adapter) == OTM_HDMI_SUCCESS) {
+#ifdef CONFIG_ITE_HDMI_CEC
+		edid_info = &ctx->edid_int;
+		hdmi_edid_src_phy_addr = edid_info->spa;
+#endif
 		ret += android_hdmi_add_cea_edid_modes(hdmi_priv->context,
 						connector);
 	}
@@ -1104,7 +1289,7 @@ edid_is_ready:
 				ret++;
 	}
 #endif
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 	connector->display_info.raw_edid = NULL;
 #endif
 	/* monitor_type is being used to switch state between HDMI & DVI */
@@ -1116,8 +1301,11 @@ edid_is_ready:
 	j = 0;
 	list_for_each_entry_safe(mode, t, &connector->probed_modes, head) {
 		refresh_rate = calculate_refresh_rate(mode);
+		if (mode->vrefresh == 0) {
+			mode->vrefresh = refresh_rate;
+		}
 		pr_debug("Mode %02d: %s %dHz\t Clk: %dKHz H/V: %c,%c"
-			"flags: 0x%08x",
+			"flags: 0x%08x\n",
 			j, mode->name, refresh_rate, mode->clock,
 			(mode->flags & DRM_MODE_FLAG_PHSYNC) ? '+' : '-',
 			(mode->flags & DRM_MODE_FLAG_PVSYNC) ? '+' : '-',
@@ -1138,7 +1326,7 @@ edid_is_ready:
 
 		j++;
 	}
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 	/* add user mode to connector->mode list to support
 	 * DRM IOCTL attachmode
 	 */
@@ -1232,94 +1420,6 @@ static void __android_hdmi_dump_crtc_mode(struct drm_display_mode *mode)
 	pr_debug("vtotal = %d\n", mode->vtotal);
 	pr_debug("clock = %d\n", mode->clock);
 	pr_debug("flags = 0x%x\n", mode->flags);
-}
-
-/**
- * helper function to convert drm_display_mode to otm_hdmi_timing.
- * @otm_mode:		otm hdmi mode to be populated
- * @drm_mode:		drm_display_mode
- *
- * Returns:	none.
- */
-static void __android_hdmi_drm_mode_to_otm_timing(otm_hdmi_timing_t *otm_mode,
-				struct drm_display_mode *drm_mode)
-{
-	uint8_t i = 0;
-	uint32_t par = OTM_HDMI_PAR_NO_DATA;
-
-	if (otm_mode == NULL || drm_mode == NULL)
-		return;
-
-	otm_mode->width			= (unsigned short)
-						drm_mode->crtc_hdisplay;
-	otm_mode->height		= (unsigned short)
-						drm_mode->crtc_vdisplay;
-	otm_mode->dclk			= (unsigned long)
-						drm_mode->clock;
-	otm_mode->htotal		= (unsigned short)
-						drm_mode->crtc_htotal;
-	otm_mode->hblank_start		= (unsigned short)
-						drm_mode->crtc_hblank_start;
-	otm_mode->hblank_end		= (unsigned short)
-						drm_mode->crtc_hblank_end;
-	otm_mode->hsync_start		= (unsigned short)
-						drm_mode->crtc_hsync_start;
-	otm_mode->hsync_end		= (unsigned short)
-						drm_mode->crtc_hsync_end;
-	otm_mode->vtotal		= (unsigned short)
-						drm_mode->crtc_vtotal;
-	otm_mode->vblank_start		= (unsigned short)
-						drm_mode->crtc_vblank_start;
-	otm_mode->vblank_end		= (unsigned short)
-						drm_mode->crtc_vblank_end;
-	otm_mode->vsync_start		= (unsigned short)
-						drm_mode->crtc_vsync_start;
-	otm_mode->vsync_end		= (unsigned short)
-						drm_mode->crtc_vsync_end;
-
-	otm_mode->mode_info_flags = 0;
-	if (drm_mode->flags & DRM_MODE_FLAG_INTERLACE)
-		otm_mode->mode_info_flags |= PD_SCAN_INTERLACE;
-
-	if (drm_mode->flags & DRM_MODE_FLAG_PAR4_3) {
-		otm_mode->mode_info_flags |= OTM_HDMI_PAR_4_3;
-		par = OTM_HDMI_PAR_4_3;
-	} else if (drm_mode->flags & DRM_MODE_FLAG_PAR16_9) {
-		otm_mode->mode_info_flags |= OTM_HDMI_PAR_16_9;
-		par = OTM_HDMI_PAR_16_9;
-	}
-
-	if (drm_mode->flags & DRM_MODE_FLAG_PHSYNC)
-		otm_mode->mode_info_flags |= PD_HSYNC_HIGH;
-
-	if (drm_mode->flags & DRM_MODE_FLAG_PVSYNC)
-		otm_mode->mode_info_flags |= PD_VSYNC_HIGH;
-
-	otm_mode->metadata = 0;
-	for (i = 0; i < ARRAY_SIZE(vic_formats); i++) {
-		if (otm_mode->width == vic_formats[i].width &&
-			otm_mode->height == vic_formats[i].height &&
-			otm_mode->htotal == vic_formats[i].htotal &&
-			otm_mode->vtotal == vic_formats[i].vtotal &&
-			__android_check_clock_match(otm_mode->dclk, vic_formats[i].dclk) &&
-			par == vic_formats[i].par) {
-			if (1 == cmdline_mode.specified &&
-				1 == cmdline_mode.vic_specified) {
-				if (cmdline_mode.vic == vic_formats[i].vic) {
-					otm_mode->metadata = cmdline_mode.vic;
-					break;
-				}
-				/* else continue */
-			} else {
-				otm_mode->metadata = vic_formats[i].vic;
-				pr_debug("Assigning vic %d to mode %dx%d@%d, flags=%#x.\n",
-					(int)otm_mode->metadata, otm_mode->width,
-					otm_mode->height, (int)otm_mode->dclk,
-					(int)otm_mode->mode_info_flags);
-				break;
-			}
-		}
-	}
 }
 
 /**
@@ -1429,6 +1529,7 @@ int android_hdmi_crtc_mode_set(struct drm_crtc *crtc,
 	struct drm_encoder *encoder;
 	struct drm_connector *connector;
 	uint64_t scalingType = DRM_MODE_SCALE_CENTER;
+	int ret = 0;
 
 	int pipe;
 	otm_hdmi_timing_t otm_mode, otm_adjusted_mode;
@@ -1482,7 +1583,7 @@ int android_hdmi_crtc_mode_set(struct drm_crtc *crtc,
 			continue;
 		psb_intel_output = to_psb_intel_output(connector);
 	}
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 	if (psb_intel_output)
 		drm_connector_property_get_value(&psb_intel_output->base,
 			dev->mode_config.scaling_mode_property, &scalingType);
@@ -1496,26 +1597,35 @@ int android_hdmi_crtc_mode_set(struct drm_crtc *crtc,
 
 	__android_hdmi_set_scaling_type(hdmi_priv->context, scalingType);
 
-	/* Disable the VGA plane that we never use */
-	REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
+	if (!dev_priv->hdmi_first_boot) {
+		/* Disable the VGA plane that we never use */
+		REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
 
-	/* Disable the panel fitter if it was on our pipe */
-	if (psb_intel_panel_fitter_pipe(dev) == pipe)
-		REG_WRITE(PFIT_CONTROL, 0);
+		/* Disable the panel fitter if it was on our pipe */
+		if (psb_intel_panel_fitter_pipe(dev) == pipe)
+			REG_WRITE(PFIT_CONTROL, 0);
 
-	/* Flush the plane changes */
-	{
-		struct drm_crtc_helper_funcs *crtc_funcs = crtc->helper_private;
-		crtc_funcs->mode_set_base(crtc, x, y, old_fb);
-	}
+		/* Flush the plane changes */
+		{
+			struct drm_crtc_helper_funcs *crtc_funcs =
+							crtc->helper_private;
+			ret = crtc_funcs->mode_set_base(crtc, x, y, old_fb);
+			if (ret != 0)
+				return ret;
+		}
 
-	if (otm_hdmi_crtc_mode_set(hdmi_priv->context, &otm_mode,
-				&otm_adjusted_mode, fb_width,
-				fb_height, &clock_khz)) {
-		pr_err("%s: failed to perform hdmi crtc mode set",
+		if (otm_hdmi_crtc_mode_set(hdmi_priv->context, &otm_mode,
+					&otm_adjusted_mode, fb_width,
+					fb_height, &clock_khz)) {
+			pr_err("%s: failed to perform hdmi crtc mode set",
 					__func__);
-		ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
-		return 0;
+			ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
+			return 0;
+		}
+	} else {
+		otm_hdmi_crtc_pll_get(hdmi_priv->context,
+				&otm_adjusted_mode,
+				&clock_khz);
 	}
 
 	hdmi_priv->clock_khz = clock_khz;
@@ -1571,12 +1681,14 @@ void android_hdmi_enc_mode_set(struct drm_encoder *encoder,
 	__android_hdmi_drm_mode_to_otm_timing(&otm_adjusted_mode,
 						adjusted_mode);
 
-	if (otm_hdmi_enc_mode_set(hdmi_priv->context, &otm_mode,
-				&otm_adjusted_mode)) {
-		pr_err("%s: failed to perform hdmi enc mode set",
+	if (!dev_priv->hdmi_first_boot) {
+		if (otm_hdmi_enc_mode_set(hdmi_priv->context, &otm_mode,
+					&otm_adjusted_mode)) {
+			pr_err("%s: failed to perform hdmi enc mode set",
 					__func__);
-		ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
-		return;
+			ospm_power_using_hw_end(OSPM_DISPLAY_ISLAND);
+			return;
+		}
 	}
 
 	/*save current set mode*/
@@ -1624,18 +1736,13 @@ void android_hdmi_suspend_display(struct drm_device *dev)
 	if (NULL == hdmi_priv)
 		return;
 
-	if (hdmi_priv->hdmi_audio_enabled) {
-		pr_err("OSPM: %s: hdmi audio is busy\n", __func__);
-		return;
-	}
-
 	/* Check if monitor is attached to HDMI connector. */
 	is_connected = otm_hdmi_get_cable_status(hdmi_priv->context);
 
 	otm_hdmi_save_display_registers(hdmi_priv->context,
 					is_connected);
 
-	otm_disable_hdmi(hdmi_priv->context, is_connected);
+	otm_disable_hdmi(hdmi_priv->context);
 
 	/* power island is turnned off by IRQ handler if device is disconnected */
 	if (is_connected && !hdmi_priv->hdmi_suspended) {
@@ -1648,6 +1755,11 @@ void android_hdmi_suspend_display(struct drm_device *dev)
 
 	/* disable hotplug detection */
 	otm_hdmi_enable_hpd(false);
+
+	if (is_connected) {
+		mid_hdmi_audio_signal_event(dev, HAD_EVENT_HOT_UNPLUG);
+		switch_set_state(&hdmi_priv->sdev, 0);
+	}
 
 	return;
 }
@@ -1765,6 +1877,11 @@ void android_hdmi_resume_display(struct drm_device *dev)
 
 	/* enable hotplug detection */
 	otm_hdmi_enable_hpd(true);
+
+	if (is_connected) {
+		mid_hdmi_audio_signal_event(dev, HAD_EVENT_HOT_PLUG);
+		switch_set_state(&hdmi_priv->sdev, 1);
+	}
 }
 
 /**
@@ -1949,7 +2066,40 @@ bool android_hdmi_mode_fixup(struct drm_encoder *encoder,
 		const struct drm_display_mode *mode,
 		struct drm_display_mode *adjusted_mode)
 {
-	pr_debug("%s: Nothing be done here\n", __func__);
+	struct drm_device *dev = encoder->dev;
+	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct android_hdmi_priv *hdmi_priv = dev_priv->hdmi_priv;
+
+	otm_hdmi_timing_t otm_mode;
+	uint32_t hdisplay = 0;
+	uint32_t vdisplay = 0;
+	uint8_t vic = 0;
+	int monitor_type = MONITOR_TYPE_HDMI;
+
+	if (dev_priv->hdmi_first_boot) {
+		query_fw_hdmi_setting(dev, &hdisplay, &vdisplay, &vic, &monitor_type);
+		__android_hdmi_drm_mode_to_otm_timing(&otm_mode, (struct drm_display_mode *)mode);
+
+		if (mode->hdisplay == 640 &&
+			mode->vdisplay == 480) {
+			/*
+			 *  FW uses panel fitter for downscaling if preferred mode is 640x480.
+			 *  in kernel, overlay is used for downscaling hence panel fitter needs
+			 *  to be disabled, a simple solution is to reset mode.
+			 */
+			dev_priv->hdmi_first_boot = false;
+		} else if (hdisplay == mode->hdisplay &&
+					vdisplay == mode->vdisplay &&
+					(otm_mode.metadata == vic) &&
+					(monitor_type == hdmi_priv->monitor_type)) {
+			pr_info("%s: skip first boot !\n", __func__);
+			dev_priv->hdmi_first_boot = true;
+		} else {
+			/* need mode setting */
+			dev_priv->hdmi_first_boot = false;
+		}
+	}
+
 	return true;
 }
 
@@ -2229,7 +2379,17 @@ android_hdmi_detect(struct drm_connector *connector,
 
 	/* Check if monitor is attached to HDMI connector. */
 	data = otm_hdmi_get_cable_status(hdmi_priv->context);
-	pr_debug("%s: HPD connected data = 0x%x.\n", __func__, data);
+	pr_debug("%s: HPD connected data = %d.\n", __func__, data);
+
+	if (!first_boot) {
+		/* detect can be invoked in multiple contexts,  providing potentially inconsistent
+		* cable status to drm framework and user land.  Use hdmi state detected
+		* in the IRQ handler to any observer after the first boot.
+		*/
+		if (data != hdmi_state)
+			pr_err("%s: inconsistent HPD status %d\n", __func__, data);
+		data = hdmi_state;
+	}
 
 #ifdef OTM_HDMI_HDCP_ENABLE
 	otm_hdmi_hdcp_set_hpd_state(hdmi_priv->context, data);
@@ -2366,7 +2526,7 @@ static int android_hdmi_set_property(struct drm_connector *connector,
 		default:
 			goto set_prop_error;
 		}
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 		if (drm_connector_property_get_value(connector, property, &curValue))
 #else
                 if (drm_object_property_get_value(&connector->base, property, &curValue))
@@ -2375,7 +2535,7 @@ static int android_hdmi_set_property(struct drm_connector *connector,
 
 		if (curValue == value)
 			goto set_prop_done;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 		if (drm_connector_property_set_value(connector, property, value))
 #else 
                 if (drm_object_property_set_value(&connector->base, property, value))
@@ -2427,16 +2587,15 @@ void android_hdmi_connector_destroy(struct drm_connector *connector)
 void android_hdmi_connector_dpms(struct drm_connector *connector, int mode)
 {
 	struct drm_device *dev = connector->dev;
-#if (defined CONFIG_PM_RUNTIME) && (!defined MERRIFIELD)
-	struct drm_psb_private *dev_priv = dev->dev_private;
-#endif
 	bool hdmi_audio_busy = false;
 	u32 dspcntr_val;
-
-#if (defined CONFIG_PM_RUNTIME) && (!defined MERRIFIELD)
+	struct drm_psb_private *dev_priv = dev->dev_private;
+#if (defined CONFIG_PM_RUNTIME) && (!defined MERRIFIELD) \
+	&& (defined CONFIG_SUPPORT_MIPI)
 	bool panel_on = false, panel_on2 = false;
 	struct mdfld_dsi_config **dsi_configs;
 #endif
+
 	pr_debug("Entered %s\n", __func__);
 	if (!ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND,
 				OSPM_UHB_FORCE_POWER_ON))
@@ -2453,9 +2612,11 @@ void android_hdmi_connector_dpms(struct drm_connector *connector, int mode)
 		connector->dpms = mode;
 
 		if (mode != DRM_MODE_DPMS_ON) {
-			REG_WRITE(DSPBCNTR, dspcntr_val &
-							~DISPLAY_PLANE_ENABLE);
-			DISP_PLANEB_STATUS = DISPLAY_PLANE_DISABLE;
+			if (!dev_priv->hdmi_first_boot) {
+				REG_WRITE(DSPBCNTR, dspcntr_val &
+						~DISPLAY_PLANE_ENABLE);
+				DISP_PLANEB_STATUS = DISPLAY_PLANE_DISABLE;
+			}
 		} else {
 			REG_WRITE(DSPBCNTR, dspcntr_val |
 							DISPLAY_PLANE_ENABLE);
@@ -2470,7 +2631,8 @@ void android_hdmi_connector_dpms(struct drm_connector *connector, int mode)
 			DISP_PLANEB_STATUS = DISPLAY_PLANE_ENABLE;
 	}
 
-#if (defined CONFIG_PM_RUNTIME) && (!defined MERRIFIELD)
+#if (defined CONFIG_PM_RUNTIME) && (!defined MERRIFIELD) \
+	&& (defined CONFIG_SUPPORT_MIPI)
 	dsi_configs = dev_priv->dsi_configs;
 
 	if (dsi_configs[0])
@@ -2554,29 +2716,27 @@ void android_hdmi_encoder_dpms(struct drm_encoder *encoder, int mode)
 	}
 
 	if (mode != DRM_MODE_DPMS_ON) {
-		if (is_monitor_hdmi && (hdmip_enabled != 0))
-			mid_hdmi_audio_signal_event(dev, HAD_EVENT_HOT_UNPLUG);
-
-		REG_WRITE(hdmi_priv->hdmib_reg,
-			hdmib & ~HDMIB_PORT_EN & ~HDMIB_AUDIO_ENABLE);
-		otm_hdmi_vblank_control(dev, false);
-		REG_WRITE(HDMIPHYMISCCTL, hdmi_phy_misc | HDMI_PHY_POWER_DOWN);
-		rc = otm_hdmi_disable_all_infoframes(hdmi_priv->context);
-		if (rc != OTM_HDMI_SUCCESS)
-			pr_err("%s: failed to disable all infoframes\n",
-				__func__);
-
+		if (!dev_priv->hdmi_first_boot) {
+			REG_WRITE(hdmi_priv->hdmib_reg,
+					hdmib & ~HDMIB_PORT_EN & ~HDMIB_AUDIO_ENABLE);
+			otm_hdmi_vblank_control(dev, false);
+			REG_WRITE(HDMIPHYMISCCTL, hdmi_phy_misc | HDMI_PHY_POWER_DOWN);
+			rc = otm_hdmi_disable_all_infoframes(hdmi_priv->context);
+			if (rc != OTM_HDMI_SUCCESS)
+				pr_err("%s: failed to disable all infoframes\n",
+						__func__);
+		}
 	} else {
 		REG_WRITE(HDMIPHYMISCCTL, hdmi_phy_misc & ~HDMI_PHY_POWER_DOWN);
 		otm_hdmi_vblank_control(dev, true);
 		REG_WRITE(hdmi_priv->hdmib_reg, hdmib | HDMIB_PORT_EN);
 
-		if (is_monitor_hdmi && (hdmip_enabled == 0)) {
+		if (hdmi_priv->delayed_audio_hotplug) {
 			mid_hdmi_audio_signal_event(dev, HAD_EVENT_HOT_PLUG);
 			switch_set_state(&hdmi_priv->sdev, 1);
-			pr_info("%s: hdmi state switched to %d\n", __func__,
-				hdmi_priv->sdev.state);
-        }
+			pr_info("%s: hdmi switch state set to 1.\n", __func__);
+			hdmi_priv->delayed_audio_hotplug = false;
+		}
 
 		if (hdmi_priv->current_mode)
 			__android_hdmi_drm_mode_to_otm_timing(&otm_mode,
@@ -2689,7 +2849,7 @@ void android_hdmi_driver_init(struct drm_device *dev,
 				DRM_MODE_CONNECTOR_DVID);
 	drm_connector_helper_add(connector,
 				 &android_hdmi_connector_helper_funcs);
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 	drm_connector_attach_property(connector,
 					dev->mode_config.scaling_mode_property,
 					default_hdmi_scaling_mode);
@@ -2728,6 +2888,8 @@ void android_hdmi_driver_init(struct drm_device *dev,
 
 	/* Enable hotplug detection */
 	otm_hdmi_enable_hpd(true);
+
+	usleep_range(1000, 2000);
 
 	pr_info("%s: Done with driver init\n", __func__);
 	pr_info("Exit %s\n", __func__);

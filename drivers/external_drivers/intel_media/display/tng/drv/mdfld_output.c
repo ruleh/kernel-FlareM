@@ -27,38 +27,34 @@
 
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include "displays/hdmi.h"
+
+#include "psb_drv.h"
+#include "android_hdmi.h"
+
+#ifdef CONFIG_SUPPORT_MIPI
 #include "mdfld_dsi_dbi.h"
 #include "mdfld_dsi_dpi.h"
 #include "mdfld_output.h"
 #include "mdfld_dsi_output.h"
-
-#include "displays/hdmi.h"
 #include "displays/jdi_vid.h"
 #include "displays/jdi_cmd.h"
 #include "displays/cmi_vid.h"
 #include "displays/cmi_cmd.h"
 #include "displays/sharp10x19_cmd.h"
-#include "displays/sharp10x19_vid.h"
 #include "displays/sharp25x16_vid.h"
 #include "displays/sharp25x16_cmd.h"
 #include "displays/sdc16x25_8_cmd.h"
 #include "displays/sdc25x16_cmd.h"
 #include "displays/jdi25x16_vid.h"
 #include "displays/jdi25x16_cmd.h"
-#include "displays/otm1284a_vid.h"
-#include "displays/otm1901a_vid.h"
-#include "displays/nt35596_vid.h"
-#include "psb_drv.h"
-#include "android_hdmi.h"
 
 static struct intel_mid_panel_list panel_list[] = {
-#if 0 /* Marked unused panel driver */
-        {JDI_7x12_VID, MDFLD_DSI_ENCODER_DPI, jdi_vid_init},
+	{JDI_7x12_VID, MDFLD_DSI_ENCODER_DPI, jdi_vid_init},
 	{JDI_7x12_CMD, MDFLD_DSI_ENCODER_DBI, jdi_cmd_init},
 	{CMI_7x12_VID, MDFLD_DSI_ENCODER_DPI, cmi_vid_init},
 	{CMI_7x12_CMD, MDFLD_DSI_ENCODER_DBI, cmi_cmd_init},
 	{SHARP_10x19_CMD, MDFLD_DSI_ENCODER_DBI, sharp10x19_cmd_init},
-	{SHARP_10x19_VID, MDFLD_DSI_ENCODER_DPI, sharp10x19_vid_init},
 	{SHARP_10x19_DUAL_CMD, MDFLD_DSI_ENCODER_DBI, sharp10x19_cmd_init},
 	{SHARP_25x16_VID, MDFLD_DSI_ENCODER_DPI, sharp25x16_vid_init},
 	{SHARP_25x16_CMD, MDFLD_DSI_ENCODER_DBI, sharp25x16_cmd_init},
@@ -66,10 +62,6 @@ static struct intel_mid_panel_list panel_list[] = {
 	{JDI_25x16_CMD, MDFLD_DSI_ENCODER_DBI, jdi25x16_cmd_init},
 	{SDC_16x25_CMD, MDFLD_DSI_ENCODER_DBI, sdc16x25_8_cmd_init},
 	{SDC_25x16_CMD, MDFLD_DSI_ENCODER_DBI, sdc25x16_cmd_init},
-#endif
-	{OTM1284A_VID, MDFLD_DSI_ENCODER_DPI, otm1284a_vid_init},
-	{OTM1901A_VID, MDFLD_DSI_ENCODER_DPI, otm1901a_vid_init},
-	{NT35596_VID, MDFLD_DSI_ENCODER_DPI, nt35596_vid_init},
 };
 
 enum panel_type get_panel_type(struct drm_device *dev, int pipe)
@@ -106,58 +98,32 @@ bool is_dual_panel(struct drm_device *dev)
  */
 mdfld_dsi_encoder_t is_panel_vid_or_cmd(struct drm_device *dev)
 {
-	struct drm_psb_private *dev_priv = dev->dev_private;
-	return dev_priv->mipi_encoder_type;
-}
-
-mdfld_dsi_encoder_t get_mipi_panel_type(struct drm_device *dev)
-{
-	struct drm_psb_private *dev_priv = dev->dev_private;
+	struct drm_psb_private *dev_priv =
+		(struct drm_psb_private *) dev->dev_private;
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(panel_list); i++)
+	for (i = 0; i < ARRAY_SIZE(panel_list); i++) {
 		if (panel_list[i].p_type == dev_priv->panel_id)
 			return panel_list[i].encoder_type;
-	DRM_ERROR("can't find panel id : %d\n", dev_priv->panel_id);
+	}
+	DRM_INFO("%s : Could not find panel: pabel_id = %d, ARRAY_SIZE = %zd",
+			__func__, dev_priv->panel_id, ARRAY_SIZE(panel_list));
+	DRM_INFO("%s : Crashing...", __func__);
 	BUG();
 
+	/* This should be unreachable */
 	return 0;
 }
-
-/**
- * panel_mode_string() - Returns panel mode as a string.
- * @dev
- * Function return value: "video", "command", or "unknown".
- */
-const char *panel_mode_string(struct drm_device *dev)
-{
-	mdfld_dsi_encoder_t enctyp;
-	const char *pms;
-
-	enctyp = is_panel_vid_or_cmd(dev);
-
-	switch (enctyp) {
-	case MDFLD_DSI_ENCODER_DPI:
-		pms = "video";
-		break;
-	case MDFLD_DSI_ENCODER_DBI:
-		pms = "command";
-		break;
-	default:
-		pms = "unknown";
-		break;
-	}
-
-	return pms;
-}
-
+#endif
 
 void init_panel(struct drm_device *dev, int mipi_pipe, enum panel_type p_type)
 {
 	struct drm_psb_private *dev_priv =
 		(struct drm_psb_private *) dev->dev_private;
+#ifdef CONFIG_SUPPORT_MIPI
 	struct panel_funcs *p_funcs = NULL;
 	int i = 0, ret = 0;
+#endif
 	struct drm_connector *connector;
 
 #ifdef CONFIG_SUPPORT_HDMI
@@ -182,6 +148,7 @@ void init_panel(struct drm_device *dev, int mipi_pipe, enum panel_type p_type)
 	}
 #endif
 
+#ifdef CONFIG_SUPPORT_MIPI
 	dev_priv->cur_pipe = mipi_pipe;
 	p_funcs = kzalloc(sizeof(struct panel_funcs), GFP_KERNEL);
 
@@ -199,10 +166,12 @@ void init_panel(struct drm_device *dev, int mipi_pipe, enum panel_type p_type)
 			break;
 		}
 	}
+#endif
 }
 
 void mdfld_output_init(struct drm_device *dev)
 {
+#ifdef CONFIG_SUPPORT_MIPI
 	enum panel_type p_type1;
 
 	/* MIPI panel 1 */
@@ -216,6 +185,7 @@ void mdfld_output_init(struct drm_device *dev)
 		p_type2 = get_panel_type(dev, 2);
 		init_panel(dev, 2, p_type2);
 	}
+#endif
 #endif
 
 #ifdef CONFIG_SUPPORT_HDMI

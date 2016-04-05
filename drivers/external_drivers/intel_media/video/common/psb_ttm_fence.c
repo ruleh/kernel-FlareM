@@ -283,7 +283,6 @@ void ttm_fence_flush_old(struct ttm_fence_device *fdev,
 	unsigned long irq_flags;
 	const struct ttm_fence_driver *driver = fdev->driver;
 	bool call_flush;
-
 	uint32_t diff;
 
 	write_lock_irqsave(&fc->lock, irq_flags);

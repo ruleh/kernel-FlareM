@@ -63,25 +63,12 @@
 
 static struct mutex dpst_mutex;
 static int blc_adj2;
+#ifdef GAMMA_SETTINGS
+static u32 lut_adj[256];
+#endif
 
 static struct drm_device *g_dev = NULL;	// hack for the queue
 static uint32_t diet_saved[33];
-
-/* hist value in home UI on different resolution */
-static uint32_t *dpst_hist_fake;
-static uint32_t dpst_hist_25x16[] = {0x4d60, 0x319a3, 0xe6055, 0x13b47f,
-	0x6d752, 0x45cce, 0x340dc, 0x2b212, 0x23f7f, 0x1cb74, 0x1368a, 0xf06a,
-	0x8fb9, 0x8182, 0x2106, 0x3cd, 0x25f, 0x33c, 0x1d8, 0x1db, 0x24e, 0x1cb,
-	0x1cd, 0xf98, 0x1c9, 0x142, 0x132, 0x15f, 0x125, 0x120, 0x26d, 0x4c0c};
-
-static uint32_t dpst_hist_1080p[] = {0x42e1a, 0x74, 0x93c1, 0xcf07, 0x95f14,
-	0xca89, 0x8c4d, 0x982f, 0xb962, 0xcb4f, 0xc920, 0xc879, 0xd58d, 0xf115,
-	0xf8e6, 0xfa78, 0xf25a, 0xfddd, 0xefaf, 0xc1b8, 0xc943, 0xb1c8, 0x869c,
-	0x890d, 0x9ad4, 0xb920, 0x15f04, 0x1ba4e, 0x8e78, 0x1707, 0xb17, 0x2e19};
-static uint32_t dpst_hist_720p[] = {0x18a85, 0x2a, 0x16ac, 0x2db1, 0x260b1,
-	0x3c4e, 0x2a90, 0x2a67, 0x308f, 0x331c, 0x473f, 0x5262, 0x560a, 0x6b32,
-	0xb815, 0xe1fe, 0x7d03, 0x75df, 0x753e, 0x7507, 0x5383, 0x4710, 0x41ea,
-	0x499f, 0x5121, 0x6b71, 0xbfc4, 0xfd41, 0x4adf, 0x1146, 0x833, 0x1531};
 
 void dpst_disable_post_process(struct drm_device *dev);
 
@@ -95,7 +82,7 @@ int send_hist(void)
 	dispmgr_cmd.module = DISPMGR_MOD_DPST;
 	dispmgr_cmd.cmd = DISPMGR_DPST_HIST_DATA;
 	dispmgr_cmd.data_size = sizeof(struct drm_psb_hist_status_arg);
-	dispmgr_cmd.data = (uint64_t)&mydata;
+	dispmgr_cmd.data = (uintptr_t) &mydata;
 	dispmgr_nl_send_msg(&dispmgr_cmd);
 	return 0;
 }
@@ -203,14 +190,6 @@ int psb_hist_enable(struct drm_device *dev, void *data)
 	if (!dsi_config)
 		return 0;
 
-	/* Use a fake hist status to avoid enhancement is adapted to black
-	 * content during suspend, while make content too bright on resume.
-	*/
-	if(dev_priv->early_suspended) {
-		memcpy(arg, dpst_hist_fake, 32*sizeof(uint32_t));
-		return 0;
-	}
-
 	mutex_lock(&dpst_mutex);
 	/*
 	 * FIXME: We need to force the Display to
@@ -274,9 +253,6 @@ int psb_diet_enable(struct drm_device *dev, void *data)
 	 u32 temp =0;
 
 	if (!dev_priv)
-		return 0;
-
-	if(dev_priv->early_suspended)
 		return 0;
 
 	dsi_config = dev_priv->dsi_configs[0];
@@ -514,13 +490,6 @@ int psb_init_comm(struct drm_device *dev, void *data)
 	y += 1;
 	*arg = (x << 16) | y;
 
-	if (x*y <= 1280*800)
-		dpst_hist_fake = dpst_hist_720p;
-	else if (x*y <= 1920*1200)
-		dpst_hist_fake = dpst_hist_1080p;
-	else
-		dpst_hist_fake = dpst_hist_25x16;
-
 	return 0;
 }
 
@@ -628,28 +597,17 @@ int dpst_disable(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = psb_priv(dev);
 	uint32_t * arg = data;
-	struct backlight_device *bd;
+	struct backlight_device bd;
 
-	bd = psb_get_backlight_device();
 	if(!dev_priv)
-		return 0;
-
-	if(dev_priv->early_suspended)
 		return 0;
 
 	dpst_print("adjust percentage: %d.%d\n", *arg / 100, *arg % 100);
 	dev_priv->blc_adj2 = (*arg * 255 / 100) * 255 / 100;
 
 #ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
-	mutex_lock(&bd->ops_lock);
-	bd->props.brightness = psb_get_brightness(bd);
-	if ( 0 == bd->props.brightness)
-	{
-	    mutex_unlock(&bd->ops_lock);
-	    return 0;
-	}
-	psb_set_brightness(bd);
-	mutex_unlock(&bd->ops_lock);
+	bd.props.brightness = psb_get_brightness(&bd);
+	psb_set_brightness(&bd);
 #endif				/*  */
 	    return 0;
 }
@@ -720,9 +678,82 @@ static void dpst_restore_bl_adj_factor(struct drm_device *dev)
 	}
 }
 
+#ifdef GAMMA_SETTINGS
+static void dpst_save_gamma_settings(struct drm_device *dev)
+{
+    struct drm_psb_private *dev_priv = dev->dev_private;
+    struct drm_connector *connector;
+    struct mdfld_dsi_config *dsi_config;
+    struct drm_crtc *crtc;
+    struct psb_intel_crtc *psb_intel_crtc;
+    int i = 0;
+
+    if (!dev_priv)
+        return;
+
+    connector = dev_priv->dpst_connector;
+    dsi_config = dev_priv->dsi_configs[0];
+
+    crtc = connector->encoder->crtc;
+    psb_intel_crtc = to_psb_intel_crtc(crtc);
+
+    /*
+    * FIXME: We need to force the Display to
+    * turn on but on TNG OSPM how we can force PIPEA to do it?
+    */
+    if (!power_island_get(OSPM_DISPLAY_A))
+    {
+	return;
+    }
+
+    for (i = 0; i < 256; i++)
+        lut_adj[i] = REG_READ((PALETTE_A + 4 * i));
+
+    power_island_put(OSPM_DISPLAY_A);
+}
+
+static void dpst_restore_gamma_settings(struct drm_device *dev)
+{
+    struct drm_psb_private *dev_priv = dev->dev_private;
+    struct mdfld_dsi_config *dsi_config;
+    struct mdfld_dsi_hw_context *ctx;
+    struct drm_connector *connector;
+    struct drm_crtc *crtc;
+    struct psb_intel_crtc *psb_intel_crtc;
+    int i = 0;
+
+    if (!dev_priv)
+        return;
+
+    connector = dev_priv->dpst_connector;
+    dsi_config = dev_priv->dsi_configs[0];
+    ctx = &dsi_config->dsi_hw_context;
+
+    crtc = connector->encoder->crtc;
+    psb_intel_crtc = to_psb_intel_crtc(crtc);
+
+    /*
+    * FIXME: We need to force the Display to
+    * turn on but on TNG OSPM how we can force PIPEA to do it?
+    */
+    if (!power_island_get(OSPM_DISPLAY_A))
+    {
+        return;
+    }
+
+    for (i = 0; i < 256; i++) {
+        ctx->palette[i] = lut_adj[i];
+        REG_WRITE((PALETTE_A + 4 * i), lut_adj[i]);
+    }
+
+    power_island_put(OSPM_DISPLAY_A);
+}
+#endif
+
 void dpst_disable_post_process(struct drm_device *dev)
 {
 	dpst_restore_bl_adj_factor(dev);
+	//dpst_restore_gamma_settings(dev);
 }
 
  void dpst_execute_recv_command(struct dispmgr_command_hdr *cmd_hdr)
@@ -734,7 +765,7 @@ void dpst_disable_post_process(struct drm_device *dev)
 			struct dispmgr_command_hdr send_cmd_hdr;
 			psb_dpst_mode(g_dev, &xy);
 			send_cmd_hdr.data_size = sizeof(xy);
-			send_cmd_hdr.data = (uint64_t)&xy;
+			send_cmd_hdr.data = (uintptr_t) &xy;
 			send_cmd_hdr.module = DISPMGR_MOD_DPST;
 			send_cmd_hdr.cmd = DISPMGR_DPST_GET_MODE;
 			dispmgr_nl_send_msg(&send_cmd_hdr);
@@ -812,6 +843,7 @@ int dpst_init(struct drm_device *dev, int level, int output_id)
 	mutex_init(&dpst_mutex);
 
 	dpst_save_bl_adj_factor(dev);
+	//dpst_save_gamma_settings(dev);
 
 	return 0;
 }

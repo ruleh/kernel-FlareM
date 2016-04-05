@@ -93,11 +93,11 @@ struct android_hdmi_priv {
 	struct drm_display_mode *current_mode;
 	bool need_encoder_restore;
 	struct delayed_work enc_work;
-	struct work_struct suspend_wq;
 	void *data;
 
 	bool hdmi_suspended;
 	bool hdmi_audio_enabled;
+	bool delayed_audio_hotplug;
 	bool is_hdcp_supported;
 	int monitor_type;
 	void *context;
@@ -289,7 +289,7 @@ static inline void android_hdmi_suspend_display(
 static inline int android_hdmi_get_eld(struct drm_device *dev, void *eld)
 { return 0; }
 
-static inline uint32_t android_hdmi_get_dpll_clock(struct drm_device *dev)
+static uint32_t android_hdmi_get_dpll_clock(struct drm_device *dev)
 { return 0; }
 
 static inline bool android_enable_hdmi_hdcp(struct drm_device *dev)

@@ -38,10 +38,6 @@
 
 #define KEEP_UNUSED_CODE 0
 
-struct mdfld_dsi_config *panel_reset_dsi_config;
-struct mdfld_dsi_dpi_output *dpi_output_reset;
-
-
 static
 u16 mdfld_dsi_dpi_to_byte_clock_count(int pixel_clock_count,
 		int num_lane, int bpp)
@@ -52,8 +48,8 @@ u16 mdfld_dsi_dpi_to_byte_clock_count(int pixel_clock_count,
 /*
  * Calculate the dpi time basing on a given drm mode @mode
  * return 0 on success.
- * FIXME: I was using proposed mode value for calculation, may need to 
- * use crtc mode values later 
+ * FIXME: I was using proposed mode value for calculation, may need to
+ * use crtc mode values later
  */
 int mdfld_dsi_dpi_timing_calculation(struct drm_device *dev,
 		struct drm_display_mode *mode,
@@ -89,21 +85,31 @@ int mdfld_dsi_dpi_timing_calculation(struct drm_device *dev,
 	 * byte clock counts were calculated by following formula
 	 * bclock_count = pclk_count * bpp / num_lane / 8
 	 */
-	dpi_timing->hsync_count =
-		mdfld_dsi_dpi_to_byte_clock_count(pclk_hsync, num_lane, bpp);
-	dpi_timing->hbp_count =
-		mdfld_dsi_dpi_to_byte_clock_count(pclk_hbp, num_lane, bpp);
-	dpi_timing->hfp_count =
-		mdfld_dsi_dpi_to_byte_clock_count(pclk_hfp, num_lane, bpp);
-	if (is_dual_dsi(dev))
-		dpi_timing->hactive_count =
-			mdfld_dsi_dpi_to_byte_clock_count(pclk_hactive / 2, num_lane, bpp);
-	else
+	if (is_dual_dsi(dev)) {
+		dpi_timing->hsync_count = pclk_hsync;
+		dpi_timing->hbp_count = pclk_hbp;
+		dpi_timing->hfp_count = pclk_hfp;
+		dpi_timing->hactive_count = pclk_hactive / 2;
+		dpi_timing->vsync_count = pclk_vsync;
+		dpi_timing->vbp_count = pclk_vbp;
+		dpi_timing->vfp_count = pclk_vfp;
+	} else {
+		dpi_timing->hsync_count =
+			mdfld_dsi_dpi_to_byte_clock_count(pclk_hsync, num_lane, bpp);
+		dpi_timing->hbp_count =
+			mdfld_dsi_dpi_to_byte_clock_count(pclk_hbp, num_lane, bpp);
+		dpi_timing->hfp_count =
+			mdfld_dsi_dpi_to_byte_clock_count(pclk_hfp, num_lane, bpp);
 		dpi_timing->hactive_count =
 			mdfld_dsi_dpi_to_byte_clock_count(pclk_hactive, num_lane, bpp);
-	dpi_timing->vsync_count = pclk_vsync;
-	dpi_timing->vbp_count = pclk_vbp;
-	dpi_timing->vfp_count = pclk_vfp;
+
+		dpi_timing->vsync_count =
+			mdfld_dsi_dpi_to_byte_clock_count(pclk_vsync, num_lane, bpp);
+		dpi_timing->vbp_count =
+			mdfld_dsi_dpi_to_byte_clock_count(pclk_vbp, num_lane, bpp);
+		dpi_timing->vfp_count =
+			mdfld_dsi_dpi_to_byte_clock_count(pclk_vfp, num_lane, bpp);
+	}
 	PSB_DEBUG_ENTRY("DPI timings: %d, %d, %d, %d, %d, %d, %d\n",
 			dpi_timing->hsync_count, dpi_timing->hbp_count,
 			dpi_timing->hfp_count, dpi_timing->hactive_count,
@@ -168,14 +174,8 @@ static int __dpi_enter_ulps_locked(struct mdfld_dsi_config *dsi_config, int offs
 	sender->work_for_slave_panel = false;
 
 	/*inform DSI host is to be put on ULPS*/
-	ctx->device_ready |= (DSI_POWER_STATE_ULPS_ENTER |
-				DSI_DEVICE_READY);
+	ctx->device_ready |= DSI_POWER_STATE_ULPS_ENTER;
 	REG_WRITE(regs->device_ready_reg + offset, ctx->device_ready);
-	mdelay(1);
-
-	/* set AFE hold value*/
-	REG_WRITE(regs->mipi_reg + offset,
-		REG_READ(regs->mipi_reg + offset) & (~PASS_FROM_SPHY_TO_AFE));
 
 	PSB_DEBUG_ENTRY("entered ULPS state\n");
 	return 0;
@@ -183,31 +183,15 @@ static int __dpi_enter_ulps_locked(struct mdfld_dsi_config *dsi_config, int offs
 
 static int __dpi_exit_ulps_locked(struct mdfld_dsi_config *dsi_config, int offset)
 {
-	int tem = 0;
 	struct mdfld_dsi_hw_registers *regs = &dsi_config->regs;
 	struct mdfld_dsi_hw_context *ctx = &dsi_config->dsi_hw_context;
 	struct drm_device *dev = dsi_config->dev;
 
 	ctx->device_ready = REG_READ(regs->device_ready_reg + offset);
 
-	/*inform DSI host is to be put on ULPS*/
-	ctx->device_ready |= (DSI_POWER_STATE_ULPS_ENTER |
-				 DSI_DEVICE_READY);
-	REG_WRITE(regs->device_ready_reg + offset, ctx->device_ready);
-
-	mdelay(1);
-
-	/* clear AFE hold value*/
-	if (offset != 0)
-		tem = 0x1000;
-
-	REG_WRITE(regs->mipi_reg + tem,
-		REG_READ(regs->mipi_reg + tem) | PASS_FROM_SPHY_TO_AFE);
-
 	/*enter ULPS EXIT state*/
 	ctx->device_ready &= ~DSI_POWER_STATE_ULPS_MASK;
-	ctx->device_ready |= (DSI_POWER_STATE_ULPS_EXIT |
-			DSI_DEVICE_READY);
+	ctx->device_ready |= DSI_POWER_STATE_ULPS_EXIT;
 	REG_WRITE(regs->device_ready_reg + offset, ctx->device_ready);
 
 	/*wait for 1ms as spec suggests*/
@@ -215,10 +199,7 @@ static int __dpi_exit_ulps_locked(struct mdfld_dsi_config *dsi_config, int offse
 
 	/*clear ULPS state*/
 	ctx->device_ready &= ~DSI_POWER_STATE_ULPS_MASK;
-	ctx->device_ready |= DSI_DEVICE_READY;
 	REG_WRITE(regs->device_ready_reg + offset, ctx->device_ready);
-
-	mdelay(1);
 
 	PSB_DEBUG_ENTRY("exited ULPS state\n");
 	return 0;
@@ -269,6 +250,7 @@ static void __dpi_set_properties(struct mdfld_dsi_config *dsi_config,
 	REG_WRITE(regs->vsync_count_reg + offset, ctx->vsync_count);
 	REG_WRITE(regs->vbp_count_reg + offset, ctx->vbp_count);
 	REG_WRITE(regs->vfp_count_reg + offset, ctx->vfp_count);
+
 }
 
 static int __dpi_config_port(struct mdfld_dsi_config *dsi_config,
@@ -308,7 +290,7 @@ static void ann_dc_setup(struct mdfld_dsi_config *dsi_config)
 	struct drm_device *dev = dsi_config->dev;
 	struct mdfld_dsi_hw_registers *regs = &dsi_config->regs;
 	struct mdfld_dsi_hw_context *ctx = &dsi_config->dsi_hw_context;
-	uint32_t pipeconf = 0;
+
 
 	DRM_INFO("restore some registers to default value\n");
 
@@ -342,11 +324,6 @@ static void ann_dc_setup(struct mdfld_dsi_config *dsi_config)
 	REG_WRITE(DSPECNTR, 0x0);
 	REG_WRITE(DSPFCNTR, 0x0);
 	REG_WRITE(GCI_CTRL, REG_READ(GCI_CTRL) | 1);
-
-	/* set frame start delay to 0x2 */
-	pipeconf = REG_READ(regs->pipeconf_reg);
-	pipeconf = (pipeconf & (~BIT27)) | BIT28;
-	REG_WRITE(regs->pipeconf_reg, pipeconf);
 
 	power_island_put(OSPM_DISPLAY_B | OSPM_DISPLAY_C);
 
@@ -450,7 +427,7 @@ reset_recovery:
 	REG_WRITE(regs->dspsurf_reg, ctx->dspsurf);
 	REG_WRITE(regs->dsplinoff_reg, ctx->dsplinoff);
 	REG_WRITE(regs->vgacntr_reg, ctx->vgacntr);
-#if 1
+
 	/*restore color_coef (chrome) */
 	for (i = 0; i < 6; i++)
 		REG_WRITE(regs->color_coef_reg + (i<<2), csc_setting_save[i]);
@@ -458,18 +435,6 @@ reset_recovery:
 	/* restore palette (gamma) */
 	for (i = 0; i < 256; i++)
 		REG_WRITE(regs->palette_reg + (i<<2), gamma_setting_save[i]);
-#else
-	if (p_funcs && p_funcs->set_legacy_coefficient)
-		p_funcs->set_legacy_coefficient(dsi_config);
-
-	if (p_funcs && p_funcs->set_legacy_gamma_table)
-		p_funcs->set_legacy_gamma_table(dsi_config);
-#endif
-
-	/* restore gamma correction max (RGB) */
-	REG_WRITE(regs->gamma_red_max_reg, gamma_red_max_save);
-	REG_WRITE(regs->gamma_green_max_reg, gamma_green_max_save);
-	REG_WRITE(regs->gamma_blue_max_reg, gamma_blue_max_save);
 
 	/* restore dpst setting */
 	if (dev_priv->psb_dpst_state) {
@@ -538,10 +503,6 @@ reset_recovery:
 		REG_WRITE(DSPARB, ctx->dsparb);
 	}
 
-	/*enable plane*/
-	val = ctx->dspcntr | BIT31;
-	REG_WRITE(regs->dspcntr_reg, val);
-
 	/*Enable pipe*/
 	val = ctx->pipeconf;
 	val &= ~0x000c0000;
@@ -549,10 +510,7 @@ reset_recovery:
 	 * Frame Start occurs on third HBLANK
 	 * after the start of VBLANK
 	 */
-	val = (val & (~BIT27)) | BIT28 | BIT31;
-	if (dev_priv->legacy_csc_enable)
-		val |= BIT20;
-
+	val |= BIT31 | BIT28;
 	REG_WRITE(regs->pipeconf_reg, val);
 	/*Wait for pipe enabling,when timing generator
 	  is wroking */
@@ -567,6 +525,9 @@ reset_recovery:
 			goto power_on_err;
 		}
 	}
+	/*enable plane*/
+	val = ctx->dspcntr | BIT31;
+	REG_WRITE(regs->dspcntr_reg, val);
 
 	if (p_funcs && p_funcs->set_brightness) {
 		if (p_funcs->set_brightness(dsi_config,
@@ -621,12 +582,6 @@ static int __dpi_panel_power_off(struct mdfld_dsi_config *dsi_config,
 	/* Don't reset brightness to 0.*/
 	ctx->lastbrightnesslevel = psb_brightness;
 
-	if (p_funcs && p_funcs->set_brightness) {
-		if (p_funcs->set_brightness(dsi_config, 0))
-			DRM_ERROR("Failed to set panel brightness\n");
-	} else
-		DRM_ERROR("Failed to set panel brightness\n");
-
 	tmp = REG_READ(regs->pipeconf_reg);
         ctx->dspcntr = REG_READ(regs->dspcntr_reg);
 
@@ -637,11 +592,6 @@ static int __dpi_panel_power_off(struct mdfld_dsi_config *dsi_config,
 	/* save palette (gamma) */
 	for (i = 0; i < 256; i++)
 		ctx->palette[i] = REG_READ(regs->palette_reg + (i<<2));
-
-	/* save gamma correction max (RGB) */
-	ctx->gamma_red_max = REG_READ(regs->gamma_red_max_reg);
-	ctx->gamma_green_max = REG_READ(regs->gamma_green_max_reg);
-	ctx->gamma_blue_max = REG_READ(regs->gamma_blue_max_reg);
 
 	/*
 	 * Couldn't disable the pipe until DRM_WAIT_ON signaled by last
@@ -698,14 +648,25 @@ static int __dpi_panel_power_off(struct mdfld_dsi_config *dsi_config,
 	/*Disable MIPI port*/
 	REG_WRITE(regs->mipi_reg, (REG_READ(regs->mipi_reg) & ~BIT31));
 
+	/*clear Low power output hold*/
+	REG_WRITE(regs->mipi_reg, (REG_READ(regs->mipi_reg) & ~BIT16));
+
+	/*Disable DSI controller*/
+	REG_WRITE(regs->device_ready_reg, (ctx->device_ready & ~BIT0));
+
 	/*enter ULPS*/
 	__dpi_enter_ulps_locked(dsi_config, offset);
 
 	if (is_dual_dsi(dev)) {
 		offset = 0x1000;
 		/*Disable MIPI port*/
-		REG_WRITE(regs->mipi_reg + offset, (REG_READ(regs->mipi_reg + offset) & ~BIT31));
+		REG_WRITE(regs->mipi_reg, (REG_READ(regs->mipi_reg) & ~BIT31));
+
+		/*clear Low power output hold*/
+		REG_WRITE(regs->mipi_reg, (REG_READ(regs->mipi_reg) & ~BIT16));
 		offset = 0x800;
+		/*Disable DSI controller*/
+		REG_WRITE(regs->device_ready_reg, (ctx->device_ready & ~BIT0));
 
 		/*enter ULPS*/
 		__dpi_enter_ulps_locked(dsi_config, offset);
@@ -890,17 +851,19 @@ void mdfld_dsi_dpi_set_power(struct drm_encoder *encoder, bool on)
 	struct mdfld_dsi_encoder *dsi_encoder = MDFLD_DSI_ENCODER(encoder);
 	struct mdfld_dsi_config *dsi_config =
 		mdfld_dsi_encoder_get_config(dsi_encoder);
-	int pipe = mdfld_dsi_encoder_get_pipe(dsi_encoder);
 	struct drm_device *dev;
 	struct drm_psb_private *dev_priv;
 	struct mdfld_dsi_dpi_output *dpi_output = NULL;
 	u32 mipi_reg = MIPI;
 	u32 pipeconf_reg = PIPEACONF;
+	int pipe;
 
 	if (!dsi_config) {
 		DRM_ERROR("dsi_config is NULL\n");
 		return;
 	}
+
+	pipe = mdfld_dsi_encoder_get_pipe(dsi_encoder);
 	dev = dsi_config->dev;
 	dev_priv = dev->dev_private;
 
@@ -934,10 +897,6 @@ void mdfld_dsi_dpi_dpms(struct drm_encoder *encoder, int mode)
 	struct drm_psb_private *dev_priv;
 	struct mdfld_dsi_dpi_output *dpi_output;
 	struct panel_funcs *p_funcs;
-#ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
-	struct mdfld_dsi_hw_context *ctx;
-	struct backlight_device bd;
-#endif
 
 	dsi_encoder = MDFLD_DSI_ENCODER(encoder);
 	dsi_config = mdfld_dsi_encoder_get_config(dsi_encoder);
@@ -955,36 +914,38 @@ void mdfld_dsi_dpi_dpms(struct drm_encoder *encoder, int mode)
 		DRM_MODE_DPMS_STANDBY == mode ? "standby" : "off"));
 
 	mutex_lock(&dev_priv->dpms_mutex);
-
 	DCLockMutex();
+
 	if (mode == DRM_MODE_DPMS_ON) {
-		/*
-		 * We remove power operation here to prevent power is on
-		 * after ospm power off the panel, it will lead pipe hang.
-		 */
-		if (dev_priv->early_suspended)
-			goto unlock_dc;
 		mdfld_dsi_dpi_set_power(encoder, true);
-		drm_vblank_on(dev, dsi_config->pipe);
 		DCAttachPipe(dsi_config->pipe);
 		DC_MRFLD_onPowerOn(dsi_config->pipe);
 
 #ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
-		ctx = &dsi_config->dsi_hw_context;
-		bd.props.brightness = ctx->lastbrightnesslevel;
-		psb_set_brightness(&bd);
+		{
+			struct mdfld_dsi_hw_context *ctx =
+				&dsi_config->dsi_hw_context;
+			struct backlight_device bd;
+			bd.props.brightness = ctx->lastbrightnesslevel;
+			psb_set_brightness(&bd);
+		}
 #endif
 	} else if (mode == DRM_MODE_DPMS_STANDBY) {
 #ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
-		ctx = &dsi_config->dsi_hw_context;
+		struct mdfld_dsi_hw_context *ctx = &dsi_config->dsi_hw_context;
+		struct backlight_device bd;
 		ctx->lastbrightnesslevel = psb_get_brightness(&bd);
 		bd.props.brightness = 0;
 		psb_set_brightness(&bd);
 #endif
-
+		/* Make the pending flip request as completed. */
 		DCUnAttachPipe(dsi_config->pipe);
+		msleep(50);
 		DC_MRFLD_onPowerOff(dsi_config->pipe);
+		msleep(50);
 	} else {
+		mdfld_dsi_dpi_set_power(encoder, false);
+
 		drm_handle_vblank(dev, dsi_config->pipe);
 
 		/* Turn off TE interrupt. */
@@ -993,11 +954,9 @@ void mdfld_dsi_dpi_dpms(struct drm_encoder *encoder, int mode)
 		/* Make the pending flip request as completed. */
 		DCUnAttachPipe(dsi_config->pipe);
 		DC_MRFLD_onPowerOff(dsi_config->pipe);
-		mdfld_dsi_dpi_set_power(encoder, false);
 	}
-unlock_dc:
-	DCUnLockMutex();
 
+	DCUnLockMutex();
 	mutex_unlock(&dev_priv->dpms_mutex);
 }
 
@@ -1068,14 +1027,13 @@ static void __mdfld_dsi_dpi_set_timing(struct mdfld_dsi_config *config,
 {
 	struct mdfld_dsi_dpi_timing dpi_timing;
 	struct mdfld_dsi_hw_context *ctx;
-	struct drm_device *dev;
+	struct drm_device *dev = config->dev;
 
 	if (!config) {
 		DRM_ERROR("Invalid parameters\n");
 		return;
 	}
 
-	dev = config->dev;
 	mode = adjusted_mode;
 	ctx = &config->dsi_hw_context;
 
@@ -1156,6 +1114,9 @@ void mdfld_dsi_dpi_save(struct drm_encoder *encoder)
 	 * causing pipe hang next time when we try to use overlay
 	 */
 	msleep(50);
+	DC_MRFLD_onPowerOff(pipe);
+	msleep(50);
+	__mdfld_dsi_dpi_set_power(encoder, false);
 
 	drm_handle_vblank(dev, pipe);
 
@@ -1164,8 +1125,6 @@ void mdfld_dsi_dpi_save(struct drm_encoder *encoder)
 
 	/* Make the pending flip request as completed. */
 	DCUnAttachPipe(pipe);
-	DC_MRFLD_onPowerOff(pipe);
-	__mdfld_dsi_dpi_set_power(encoder, false);
 	DCUnLockMutex();
 }
 
@@ -1189,8 +1148,6 @@ void mdfld_dsi_dpi_restore(struct drm_encoder *encoder)
 
 	DCLockMutex();
 	__mdfld_dsi_dpi_set_power(encoder, true);
-
-	drm_vblank_on(dev, pipe);
 
 	DCAttachPipe(pipe);
 	DC_MRFLD_onPowerOn(pipe);
@@ -1302,7 +1259,6 @@ struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 	/*attach to given connector*/
 	drm_mode_connector_attach_encoder(connector, encoder);
 	connector->encoder = encoder;
-	panel_reset_dsi_config = dsi_config;
 
 	/*set possible crtcs and clones*/
 	if (dsi_connector->pipe) {
@@ -1320,62 +1276,7 @@ struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 	dev_priv->b_dsr_enable_config = true;
 #endif /*CONFIG_MDFLD_DSI_DSR*/
 
-	dpi_output_reset = dpi_output;
-
 	PSB_DEBUG_ENTRY("successfully\n");
 
 	return &dpi_output->base;
 }
-
-void mdfld_reset_dpi_panel_handler_work(struct work_struct *work)
-{
-	struct drm_psb_private *dev_priv =
-		container_of(work, struct drm_psb_private, reset_panel_work);
-	struct mdfld_dsi_config *dsi_config = NULL;
-	struct panel_funcs *p_funcs  = NULL;
-	struct drm_device *dev;
-
-	dsi_config = dev_priv->dsi_configs[0];
-
-	if (!dsi_config || !dpi_output_reset)
-		return;
-	dev = dsi_config->dev;
-
-	/*disable ESD when HDMI connected*/
-	if (hdmi_state)
-		return;
-
-	PSB_DEBUG_ENTRY("\n");
-
-	p_funcs = dpi_output_reset->p_funcs;
-	if (p_funcs) {
-		mutex_lock(&dsi_config->context_lock);
-
-		if (!dsi_config->dsi_hw_context.panel_on) {
-			DRM_INFO("don't reset panel when panel is off\n");
-			mutex_unlock(&dsi_config->context_lock);
-			return;
-		}
-
-		DRM_INFO("Starts panel reset\n");
-		/*
-		 * since panel is in abnormal state,
-		 * we do a power off/on first
-		 */
-		if (__dpi_panel_power_off(dsi_config, p_funcs))
-			DRM_INFO("failed to power off dpi panel\n");
-
-		if (__dpi_panel_power_on(dsi_config, p_funcs, dpi_output_reset->first_boot)) {
-			DRM_ERROR("failed to power on dpi panel\n");
-			mutex_unlock(&dsi_config->context_lock);
-			return;
-		}
-
-		mutex_unlock(&dsi_config->context_lock);
-
-		DRM_INFO("%s: End panel reset\n", __func__);
-	} else {
-		DRM_INFO("%s invalid panel init\n", __func__);
-	}
-}
-

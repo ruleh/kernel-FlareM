@@ -58,9 +58,9 @@
 
 extern int drm_psb_msvdx_tiling;
 
-/* Height is bigger than (1920 - 1). Encode will
+/* When width or height is bigger than 1280. Encode will
    treat TTM_PL_TT buffers as tilied memory */
-#define PSB_TOPAZ_TILING_THRESHOLD (1920 - 1)
+#define PSB_TOPAZ_TILING_THRESHOLD (1280)
 
 #ifdef MRFLD_B0_DEBUG
 /* #define TOPAZHP_ENCODE_FPGA */
@@ -275,13 +275,7 @@ static int32_t get_mtx_control_from_dash(struct drm_psb_private *dev_priv);
 
 static void release_mtx_control_from_dash(struct drm_psb_private *dev_priv);
 
-#if 0
-static int mtx_dma_write(
-	struct drm_device *dev,
-	struct ttm_buffer_object *src_bo,
-	uint32_t dst_ram_addr,
-	uint32_t size);
-#endif
+static void tng_topaz_mmu_hwsetup(struct drm_psb_private *dev_priv);
 
 #ifdef MRFLD_B0_DEBUG
 static int tng_error_dump_reg(struct drm_psb_private *dev_priv)
@@ -500,8 +494,7 @@ int tng_topaz_wait_for_register(
 	uint32_t check_func,
 	uint32_t addr,
 	uint32_t value,
-	uint32_t mask,
-	bool is_atomic)
+	uint32_t mask)
 {
 #ifdef KPDUMP
 	printk(KERN_ERR "POL :REG_TOPAZHP_MULTICORE:0x%x 0x%x 0x%x\n",
@@ -524,16 +517,15 @@ int tng_topaz_wait_for_register(
 	}
 
 	/* # poll topaz register for certain times */
-	while (--count) {
+	while (count) {
 		MM_READ32(addr, 0, &tmp);
 
 		if (func(value, tmp, mask))
 			return 0;
 
-		if (is_atomic)
-			udelay(100);
-		else
-			usleep_range(1000, 1000);
+		/* FIXME: use cpu_relax instead */
+		PSB_UDELAY(1000);/* derive from reference driver */
+		--count;
 	}
 
 	/* # now waiting is timeout, return 1 indicat failed */
@@ -602,15 +594,16 @@ static void tng_topaz_mmu_configure(struct drm_device *dev)
 #endif
 
 void tng_topaz_mmu_enable_tiling(
-	struct drm_psb_private *dev_priv,
-	struct psb_video_ctx *video_ctx)
+	struct drm_psb_private *dev_priv)
 {
 	uint32_t reg_val;
 	uint32_t min_addr = dev_priv->bdev.man[DRM_PSB_MEM_MMU_TILING].gpu_offset;
 	uint32_t max_addr = dev_priv->bdev.man[DRM_PSB_MEM_MMU_TILING].gpu_offset +
 			(dev_priv->bdev.man[DRM_PSB_MEM_MMU_TILING].size<<PAGE_SHIFT);
+	struct tng_topaz_private *topaz_priv = dev_priv->topaz_private;
 
-	if ((video_ctx->frame_h > PSB_TOPAZ_TILING_THRESHOLD))
+	if ((topaz_priv->frame_w>PSB_TOPAZ_TILING_THRESHOLD) ||
+		(topaz_priv->frame_h>PSB_TOPAZ_TILING_THRESHOLD))
 		min_addr = dev_priv->bdev.man[TTM_PL_TT].gpu_offset;
 
 	PSB_DEBUG_TOPAZ("TOPAZ: Enable tiled memory from %08x ~ %08x\n",
@@ -644,8 +637,8 @@ static int tng_topaz_query_queue(struct drm_device *dev)
 void tng_powerdown_topaz(struct work_struct *work)
 {
 	struct tng_topaz_private *topaz_priv =
-		container_of(work, struct tng_topaz_private,
-					topaz_suspend_work.work);
+		container_of(to_delayed_work(work), struct tng_topaz_private,
+			     topaz_suspend_work);
 	struct drm_device *dev = (struct drm_device *)topaz_priv->dev;
 	int32_t ret = 0;
 
@@ -689,6 +682,7 @@ int tng_topaz_init(struct drm_device *dev)
 	bool is_iomem;
 	struct tng_topaz_private *topaz_priv;
 	void *topaz_bo_virt;
+
 	PSB_DEBUG_TOPAZ("TOPAZ: init topazsc data structures\n");
 	topaz_priv = kmalloc(sizeof(struct tng_topaz_private), GFP_KERNEL);
 	if (topaz_priv == NULL)
@@ -715,8 +709,8 @@ int tng_topaz_init(struct drm_device *dev)
 
 	INIT_LIST_HEAD(&topaz_priv->topaz_queue);
 	mutex_init(&topaz_priv->topaz_mutex);
-	mutex_init(&topaz_priv->ctx_mutex);
 	spin_lock_init(&topaz_priv->topaz_lock);
+	spin_lock_init(&topaz_priv->ctx_spinlock);
 
 	topaz_priv->topaz_busy = 0;
 	topaz_priv->topaz_fw_loaded = 0;
@@ -877,9 +871,7 @@ int tng_topaz_reset(struct drm_psb_private *dev_priv)
 		TOPAZCORE_READ32(i, TOPAZHP_CR_TOPAZHP_SRST, &reg_val);
 	}
 
-	/*
 	tng_topaz_mmu_hwsetup(dev_priv);
-	*/
 
 	return 0;
 }
@@ -1094,7 +1086,7 @@ int tng_topaz_init_board(
 		TOPAZCORE_WRITE32(i, TOPAZHP_CR_TOPAZHP_SRST, 0);
 	}
 
-	tng_topaz_mmu_hwsetup(dev_priv, video_ctx);
+	tng_topaz_mmu_hwsetup(dev_priv);
 
 	tng_set_producer(dev, 0);
 	tng_set_consumer(dev, 0);
@@ -1181,7 +1173,7 @@ int tng_topaz_setup_fw(
 	ret = tng_topaz_wait_for_register(
 		dev_priv, CHECKFUNC_ISEQUAL,
 		TOPAZHP_TOP_CR_FIRMWARE_REG_1 + (MTX_SCRATCHREG_BOOTSTATUS << 2),
-		TOPAZHP_FW_BOOT_SIGNAL, 0xffffffff, 1);
+		TOPAZHP_FW_BOOT_SIGNAL, 0xffffffff);
 	if (ret) {
 		DRM_ERROR("Firmware failed to complete its setup\n");
 		return ret;
@@ -1276,7 +1268,7 @@ int tng_topaz_fw_run(
 		MULTICORE_WRITE32(MTX_SCRATCHREG_IDLE, 0);
 
 	/* set up mmu */
-	tng_topaz_mmu_hwsetup(dev_priv, video_ctx);
+	tng_topaz_mmu_hwsetup(dev_priv);
 
 	/* write 50 */
 	MULTICORE_WRITE32(TOPAZHP_TOP_CR_MULTICORE_CORE_SEL_0, 0);
@@ -1291,7 +1283,7 @@ int tng_topaz_fw_run(
 	ret = tng_topaz_wait_for_register(
 		dev_priv, CHECKFUNC_ISEQUAL,
 		TOPAZHP_TOP_CR_FIRMWARE_REG_1 + (MTX_SCRATCHREG_BOOTSTATUS << 2),
-		TOPAZHP_FW_BOOT_SIGNAL, 0xffffffff, 1);
+		TOPAZHP_FW_BOOT_SIGNAL, 0xffffffff);
 
 #ifdef MRFLD_B0_DEBUG
 	/* read 104 */
@@ -1386,7 +1378,7 @@ int mtx_upload_fw(struct drm_device *dev,
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 			REG_OFFSET_TOPAZ_DMAC + IMG_SOC_DMAC_IRQ_STAT(0),
 			F_ENCODE(1, IMG_SOC_TRANSFER_FIN),
-			F_ENCODE(1, IMG_SOC_TRANSFER_FIN), 1);
+			F_ENCODE(1, IMG_SOC_TRANSFER_FIN));
 	if (ret) {
 		DRM_ERROR("Transfer text by DMA timeout\n");
 		/* tng_error_dump_reg(dev_priv); */
@@ -1419,7 +1411,7 @@ int mtx_upload_fw(struct drm_device *dev,
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 			REG_OFFSET_TOPAZ_DMAC + IMG_SOC_DMAC_IRQ_STAT(0),
 			F_ENCODE(1, IMG_SOC_TRANSFER_FIN),
-			F_ENCODE(1, IMG_SOC_TRANSFER_FIN), 1);
+			F_ENCODE(1, IMG_SOC_TRANSFER_FIN));
 	if (ret) {
 		DRM_ERROR("Transfer data by DMA timeout\n");
 		/* tng_error_dump_reg(dev_priv); */
@@ -1575,7 +1567,7 @@ int32_t mtx_write_core_reg(
 	/* wait for operation finished */
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		REG_OFFSET_TOPAZ_MTX + MTX_CR_MTX_REGISTER_READ_WRITE_REQUEST,
-		MASK_MTX_MTX_DREADY, MASK_MTX_MTX_DREADY, 1);
+		MASK_MTX_MTX_DREADY, MASK_MTX_MTX_DREADY);
 	if (ret) {
 		DRM_ERROR("Wait for register timeout");
 		return ret;
@@ -1601,12 +1593,12 @@ int32_t mtx_read_core_reg(
 
 	/* Issue read request */
 	MTX_WRITE32(MTX_CR_MTX_REGISTER_READ_WRITE_REQUEST,
-		    MASK_MTX_MTX_RNW | (reg & ~MASK_MTX_MTX_DREADY));
+		    (MASK_MTX_MTX_RNW | reg) & ~MASK_MTX_MTX_DREADY);
 
 	/* Wait for done */
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		REG_OFFSET_TOPAZ_MTX + MTX_CR_MTX_REGISTER_READ_WRITE_REQUEST,
-		MASK_MTX_MTX_DREADY, MASK_MTX_MTX_DREADY, 1);
+		MASK_MTX_MTX_DREADY, MASK_MTX_MTX_DREADY);
 	if (ret) {
 		DRM_ERROR("Wait for register timeout");
 		return ret;
@@ -1664,12 +1656,9 @@ static void release_mtx_control_from_dash(struct drm_psb_private *dev_priv)
 	MULTICORE_WRITE32(TOPAZHP_TOP_CR_MTX_DEBUG_MSTR, reg_val);
 }
 
-void tng_topaz_mmu_hwsetup(
-	struct drm_psb_private *dev_priv,
-	struct psb_video_ctx *video_ctx)
+void tng_topaz_mmu_hwsetup(struct drm_psb_private *dev_priv)
 {
-	uint32_t reg_val = 0;
-	uint32_t pd_addr = 0;
+	uint32_t reg_val = 0, pd_addr = 0;
 
 	PSB_DEBUG_TOPAZ("TOPAZ: Setup MMU\n");
 
@@ -1690,7 +1679,7 @@ void tng_topaz_mmu_hwsetup(
 
 	/* Enable tiling */
 	if (drm_psb_msvdx_tiling && dev_priv->have_mem_mmu_tiling)
-		tng_topaz_mmu_enable_tiling(dev_priv, video_ctx);
+		tng_topaz_mmu_enable_tiling(dev_priv);
 
 	/* now enable MMU access for all requestors */
 	reg_val = F_ENCODE(0, TOPAZHP_TOP_CR_MMU_BYPASS_TOPAZ);
@@ -1761,7 +1750,7 @@ int32_t mtx_dma_read(struct drm_device *dev, struct ttm_buffer_object *dst_bo,
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		REG_OFFSET_TOPAZ_DMAC + IMG_SOC_DMAC_IRQ_STAT(0),
 		F_ENCODE(1, IMG_SOC_TRANSFER_FIN),
-		F_ENCODE(1, IMG_SOC_TRANSFER_FIN), 1);
+		F_ENCODE(1, IMG_SOC_TRANSFER_FIN));
 	if (ret) {
 		/* tng_error_dump_reg(dev_priv); */
 		DRM_ERROR("Waiting register timeout");
@@ -1814,7 +1803,7 @@ static int mtx_dma_write(
 	ret = tng_topaz_wait_for_register(dev_priv, CHECKFUNC_ISEQUAL,
 		REG_OFFSET_TOPAZ_DMAC + IMG_SOC_DMAC_IRQ_STAT(0),
 		F_ENCODE(1, IMG_SOC_TRANSFER_FIN),
-		F_ENCODE(1, IMG_SOC_TRANSFER_FIN), 1);
+		F_ENCODE(1, IMG_SOC_TRANSFER_FIN));
 	if (ret) {
 		/* tng_error_dump_reg(dev_priv); */
 		DRM_ERROR("Waiting register timeout");
@@ -1827,6 +1816,5 @@ static int mtx_dma_write(
 	return ret;
 }
 #endif
-
 
 
