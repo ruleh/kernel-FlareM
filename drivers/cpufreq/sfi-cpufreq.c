@@ -50,7 +50,7 @@
  *    ...
  *    sfi-entry 25 = 500MHz
  * 
- *    The underclocking mechanics just add 2 more P-States at the end of the freq-table
+ *    The underclocking mechanics just add 3 more P-States at the end of the freq-table
  *    Original PStates:
  *    ...
  *    sfi-entry 23 (or 25, if OC selected) = 500MHz
@@ -60,11 +60,12 @@
  *    sfi-entry 23/25 = 500MHz
  *    sfi-entry 24/26 = 416MHz
  *    sfi-entry 25/27 = 333MHz
+ *    sfi-entry 26/28 = 250MHz
  * 
  *    The maximum index which can be used for the sfi freq table is 32 (see SFI_FREQ_MAX below)
  * 
- *    As we don't want to get greedy, net increase/decrease of frequency is 166MHz "only". Of course this boundary could be
- *    even higher/lower, but my phone is my daily driver so I won't just test more frequency ranges. 
+ *    As we don't want to get greedy, net increase(166Mhz)/decrease(250Mhz) "only". Of course this boundary could be
+ *    even higher/lower.
  */
 
 #include <linux/kernel.h>
@@ -174,7 +175,7 @@ static int sfi_processor_get_performance_states(struct sfi_processor *pr)
 #endif	
 
 #ifdef CONFIG_CPU_ATOM_UNDERCLOCK
-	sfi_cpufreq_num = sfi_cpufreq_num + 2; //additional +2 states for the UC, just needed below for the memory allocation
+	sfi_cpufreq_num = sfi_cpufreq_num + 3; //additional +2 states for the UC, just needed below for the memory allocation
 #endif
 
 	pr->performance->state_count = sfi_cpufreq_num;	
@@ -187,7 +188,7 @@ static int sfi_processor_get_performance_states(struct sfi_processor *pr)
 	printk(KERN_INFO "Num p-states %d\n", sfi_cpufreq_num);
 
 #ifdef CONFIG_CPU_ATOM_UNDERCLOCK
-	sfi_cpufreq_num = sfi_cpufreq_num - 2; //need to remove the 2 UC states temporarily
+	sfi_cpufreq_num = sfi_cpufreq_num - 3; //need to remove the 2 UC states temporarily
 #endif
 
 #ifdef CONFIG_CPU_ATOM_OVERCLOCK
@@ -235,18 +236,21 @@ static int sfi_processor_get_performance_states(struct sfi_processor *pr)
 #endif
 
 #ifdef CONFIG_CPU_ATOM_UNDERCLOCK
-	sfi_cpufreq_num = sfi_cpufreq_num + 2; //and now add them back again for cosmetic purposes to make the code more understandable
+	sfi_cpufreq_num = sfi_cpufreq_num + 3; //and now add them back again for cosmetic purposes to make the code more understandable
 	
 //+State [23]: core_frequency[416] transition_latency[100] control[0x52f] -84MHz	100	0x101
 //+State [24]: core_frequency[333] transition_latency[100] control[0x42e] -83MHz	100	0x101
-	pr->performance->states[sfi_cpufreq_num-2].core_frequency = sfi_cpufreq_array[last_PState].freq_mhz - 84; //416MHz
+	pr->performance->states[sfi_cpufreq_num-3].core_frequency = sfi_cpufreq_array[last_PState].freq_mhz - 84; //416MHz
+	pr->performance->states[sfi_cpufreq_num-3].transition_latency = sfi_cpufreq_array[last_PState].latency;
+	pr->performance->states[sfi_cpufreq_num-3].control = sfi_cpufreq_array[last_PState].ctrl_val - 0x101;
+	pr->performance->states[sfi_cpufreq_num-2].core_frequency = sfi_cpufreq_array[last_PState].freq_mhz - 84 - 83; //333MHz
 	pr->performance->states[sfi_cpufreq_num-2].transition_latency = sfi_cpufreq_array[last_PState].latency;
-	pr->performance->states[sfi_cpufreq_num-2].control = sfi_cpufreq_array[last_PState].ctrl_val - 0x101;
-	pr->performance->states[sfi_cpufreq_num-1].core_frequency = sfi_cpufreq_array[last_PState].freq_mhz - 84 - 83; //333MHz
+	pr->performance->states[sfi_cpufreq_num-2].control = sfi_cpufreq_array[last_PState].ctrl_val - 0x101 - 0x101;
+	pr->performance->states[sfi_cpufreq_num-1].core_frequency = sfi_cpufreq_array[last_PState].freq_mhz - 84 - 83 - 83; //250MHz
 	pr->performance->states[sfi_cpufreq_num-1].transition_latency = sfi_cpufreq_array[last_PState].latency;
-	pr->performance->states[sfi_cpufreq_num-1].control = sfi_cpufreq_array[last_PState].ctrl_val - 0x101 - 0x101;
+	pr->performance->states[sfi_cpufreq_num-1].control = sfi_cpufreq_array[last_PState].ctrl_val - 0x101 - 0x101 - 0x101;
 		
-	for(i = sfi_cpufreq_num - 2; i<sfi_cpufreq_num; i++)
+	for(i = sfi_cpufreq_num - 3; i<sfi_cpufreq_num; i++)
 	{
 		printk(KERN_INFO "UC State [%d]: core_frequency[%d] transition_latency[%d] control[0x%x]\n",
 			i,
