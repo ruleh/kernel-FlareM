@@ -160,7 +160,7 @@ export srctree objtree VPATH
 
 #Configs
 #CCACHE
-CCACHE := ccache
+#CCACHE := ccache
 
 #ARCH
 CARCH := x86_64
@@ -203,7 +203,7 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/x86/ -e s/x86_64/x86/ \
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 ARCH		?= $(CARCH)
-CROSS_COMPILE	?= $(CCACHE) $(GCC)
+CROSS_COMPILE	?= $(GCC)
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
@@ -249,8 +249,8 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
 	  else echo sh; fi ; fi)
 
-HOSTCC       = $(CCACHE) gcc
-HOSTCXX      = $(CCACHE) g++
+HOSTCC       = gcc
+HOSTCXX      = g++
 HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -Ofast -ffast-math -fomit-frame-pointer -fgcse-las -std=gnu89
 HOSTCXXFLAGS = -Ofast -march=silvermont -mtune=silvermont -msse4.2 -mpopcnt -fgcse-las
 ifeq ($(ENABLE_GRAPHITE),true)
@@ -341,7 +341,7 @@ include $(srctree)/scripts/Kbuild.include
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
 LDFINAL		= $(LD)
-CC		= $(CCACHE) $(CROSS_COMPILE)gcc
+CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 # Check to see if the kernel is being built inline with saber host toolchains for graphite flags for CC/CPP
 # This get's passed to the host since we use $(CROSS_COMPILE)gcc
