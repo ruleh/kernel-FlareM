@@ -57,7 +57,6 @@ sleep $SLEEP
 #make clean
 wmctrl -r :ACTIVE: -N "Starting Build Process"
 echo "Starting Build Process"
-export USE_CCACHE=1
 sleep $SLEEP
 if [ -f .config ];
 then
