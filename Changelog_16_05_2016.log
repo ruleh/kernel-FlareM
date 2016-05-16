@@ -1,0 +1,340 @@
+Project name: FlareM Kernel
+ [31m5951939[m -[33m (HEAD -> cm-13.0, origin/cm-13.0, origin/HEAD)[m mm: improve migration heuristic [32m(20 hours ago) [1;34m<Tim Murray>[m
+ [31ma6f6bb0[m -[33m[m mm: adjust page migration heuristic [32m(20 hours ago) [1;34m<Tim Murray>[m
+ [31m6b416b8[m -[33m[m ion: adjust system heap pool orders [32m(20 hours ago) [1;34m<Tim Murray>[m
+ [31mbdcb181[m -[33m[m Revert "DFRGX drivers from fugu" [32m(11 days ago) [1;34m<sayeed99>[m
+ [31m34f9098[m -[33m[m Revert "set back minimum gpu freq to 200MHZ" [32m(11 days ago) [1;34m<sayeed99>[m
+ [31m4c218ec[m -[33m[m set back minimum gpu freq to 200MHZ [32m(11 days ago) [1;34m<sayeed99>[m
+ [31m909face[m -[33m[m Disable crc check [32m(12 days ago) [1;34m<sayeed99>[m
+ [31m46f0dc8[m -[33m[m DFRGX drivers from fugu removed over-clocking for now. [32m(12 days ago) [1;34m<sayeed99>[m
+ [31m4bc93c3[m -[33m[m Let min_brightness be 0, this helps in fixing hack done on kernel Adiutor [32m(12 days ago) [1;34m<sayeed99>[m
+ [31m20ee4e2[m -[33m[m add icc Makefile hopefully one day I will get it compiled and boot with icc compiler [32m(4 weeks ago) [1;34m<sayeed99>[m
+ [31m86ebf80[m -[33m[m tweak hotplug, disable mako hotplug by default [32m(4 weeks ago) [1;34m<sayeed99>[m
+ [31m0502be8[m -[33m[m Enable KSM even when UKSM is not build and add Sysfs entry for Deferred Timer [32m(4 weeks ago) [1;34m<sayeed99>[m
+ [31m908d1c9[m -[33m[m CPUFREQ.H : remove multiple include of <asm/cputime.h> [32m(4 weeks ago) [1;34m<sayeed99>[m
+ [31mf864061[m -[33m[m mako_hotplug: add my CPU Hotplug driver [32m(5 weeks ago) [1;34m<franciscofranco>[m
+ [31m4c62fb6[m -[33m[m  Optimize KSM [32m(6 weeks ago) [1;34m<eoghan2t9>[m
+ [31m86a31ad[m -[33m[m Fix warning : incompatible pointer type [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31m8acfe9b[m -[33m[m Add back all Export symbols in Vmalloc [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31md3cfd2b[m -[33m[m XOSP uses permissive Selinux, Add XOSP switch to build XOSP kernels [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31mf8cbcd4[m -[33m[m REGEN : defconfig [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31me6302b5[m -[33m[m MM : fix things using linux 3.10.101 branch [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31m3cfd084[m -[33m[m Do not build ElementalX ATM need to fix it [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31m1e9ab0b[m -[33m[m REGEN : DEFCONFIG [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31ma74fabd[m -[33m[m Revert "RGX-KM: Correcting typo on rgx for max memory pool size pages" [32m(6 weeks ago) [1;34m<eoghan2t9>[m
+ [31m860aa0e[m -[33m[m RGX-KM: Correcting typo on rgx for max memory pool size pages [32m(6 weeks ago) [1;34m<eoghan2t9>[m
+ [31m4059435[m -[33m[m Fugu clean-up: Add unused attribute to powervr_driver [32m(6 weeks ago) [1;34m<Ilkka Koskinen>[m
+ [31m28b1162[m -[33m[m staging: ion: fix corruption of ion_import_dma_buf [32m(6 weeks ago) [1;34m<Shawn Lin>[m
+ [31mb4dd8b7[m -[33m[m ion: Handle the memory mapping correctly on x86 [32m(6 weeks ago) [1;34m<Vinil Cheeramvelil>[m
+ [31mb19a8a1[m -[33m[m FROMLIST: x86: mm: support ARCH_MMAP_RND_BITS. [32m(6 weeks ago) [1;34m<dcashman>[m
+ [31md5b6666[m -[33m[m FROMLIST: arm: mm: support ARCH_MMAP_RND_BITS. [32m(6 weeks ago) [1;34m<dcashman>[m
+ [31mf2ae6f7[m -[33m[m FROMLIST: mm: mmap: Add new /proc tunable for mmap_base ASLR. [32m(6 weeks ago) [1;34m<dcashman>[m
+ [31m348b2cf[m -[33m[m Revert "Tweak GPU" this was causing overheating somehow [32m(6 weeks ago) [1;34m<sayeed99>[m
+ [31mef8fe06[m -[33m[m [Nethunter] enable defconfigs from flareM config [32m(7 weeks ago) [1;34m<sayeed99>[m
+ [31m44519ec[m -[33m[m Start using latest linaro-gcc 5.3.1 toolchain [32m(7 weeks ago) [1;34m<sayeed99>[m
+ [31mdde0d8a[m -[33m[m Update F2FS To Mainline With FS Encryption [32m(7 weeks ago) [1;34m<eoghan2t9>[m
+ [31m313660b[m -[33m[m Fix previous cherry-pick [32m(7 weeks ago) [1;34m<sayeed99>[m
+ [31mb640e97[m -[33m[m Add tweaked governor simpleondemand [32m(7 weeks ago) [1;34m<AndiP>[m
+ [31m992daa4[m -[33m[m Add tweaked GPU governor simpleondemand [32m(7 weeks ago) [1;34m<AndiP>[m
+ [31m9f3adc9[m -[33m[m Tweak GPU increase initial frequency and no. of cooling thermal states [32m(7 weeks ago) [1;34m<sayeed99>[m
+ [31m3dedb41[m -[33m[m Experimental configs and options [32m(7 weeks ago) [1;34m<eoghan2t9>[m
+ [31m56cb8b1[m -[33m[m Fix Nethunter Kernel switch back to permissive for nethunter kernels [32m(7 weeks ago) [1;34m<sayeed99>[m
+ [31m61ba76f[m -[33m[m Update Defconfigs [32m(7 weeks ago) [1;34m<sayeed99>[m
+ [31md93853a[m -[33m[m page_alloc: Make watermarks tunable separately @faux123 [32m(7 weeks ago) [1;34m<eoghan2t9>[m
+ [31mb0cb8c8[m -[33m[m android: binder: use GPF_HIGHUSER flag since binder is designed for userspace @faux123 [32m(7 weeks ago) [1;34m<eoghan2t9>[m
+ [31m0e1a17b[m -[33m[m Remove permissive [32m(7 weeks ago) [1;34m<Eoghan Cunningham>[m
+ [31m2e23708[m -[33m[m lib/memcopy: use glibc version [32m(8 weeks ago) [1;34m<eoghan2t9>[m
+ [31m1063edd[m -[33m[m fix last cherry-pick [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31mbe04600[m -[33m[m PM / devfreq: Add devfreq driver for simple device [32m(8 weeks ago) [1;34m<Saravana Kannan>[m
+ [31ma8c8d69[m -[33m[m Alphabetize cpu governors :P [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31m4aa3e10[m -[33m[m GPU : Remove underclocking for now will give it extreme tests once my phone comes back [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31mfa5d054[m -[33m[m pipe: iovec: Fix memory corruption when retrying atomic copy as non-atomic [32m(8 weeks ago) [1;34m<Ben Hutchings>[m
+ [31m69e75c9[m -[33m[m moorefield: cpuidle: Remove Asus' "false wakeup" code [32m(8 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31mf791c7b[m -[33m[m moorefield: idle: Remove Asus change to cpuidle [32m(8 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31m585fd63[m -[33m[m tty: Fix unsafe ldisc reference via ioctl(TIOCGETD) [32m(8 weeks ago) [1;34m<Peter Hurley>[m
+ [31mbc6d4d4[m -[33m[m fix for crpalmer cherry-pick coming in next [32m(8 weeks ago) [1;34m<eoghan2t9>[m
+ [31m3556b42[m -[33m[m KEYS: Fix race between read and revoke [32m(8 weeks ago) [1;34m<David Howells>[m
+ [31m22808f1[m -[33m[m fix for crpalmer cherry-pick coming in next [32m(8 weeks ago) [1;34m<eoghan2t9>[m
+ [31m6de3202[m -[33m[m ftxxxx: use KEY_WAKEUP for dt2w KEY [32m(8 weeks ago) [1;34m<Jason Riordan>[m
+ [31m13e0e78[m -[33m[m fix elementalX [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31m3e93a85[m -[33m[m fix previous cherry-pick [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31m4bc30d5[m -[33m[m ElementalX governor [32m(8 weeks ago) [1;34m<flar2>[m
+ [31m0fc6e1e[m -[33m[m Overclock and Underclock GPU [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31m92413bf[m -[33m[m Revert "Revert latest Asus stock kernel charger changes" [32m(8 weeks ago) [1;34m<sayeed99>[m
+ [31me7cb3ff[m -[33m[m nethunter : update to latest config by CM [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31mf91d87a[m -[33m[m update changelog for full version 15 [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31m4c85ad7[m -[33m[m Revert "PM / runtime: Use pm_runtime_put_sync() in __device_release_driver()" [32m(9 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31m4d38510[m -[33m[m Revert "cgroup: use a dedicated workqueue for cgroup destruction" [32m(9 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31mc1c6a67[m -[33m[m Revert "moorefield: defconfig: Disable COMPAT_VDSO" [32m(9 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31m8be4f4c[m -[33m[m add a missing file [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31mb20ab40[m -[33m[m moorefield: smp: Only dump strack traces once if stuck on csd_lock [32m(9 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31m7ee5e5d[m -[33m[m Add Changelog Generator [32m(9 weeks ago) [1;34m<eoghan2t9>[m
+ [31me1473d4[m -[33m[m Remove some saved files [32m(9 weeks ago) [1;34m<eoghan2t9>[m
+ [31m34fb521[m -[33m[m cpufreq header fixes [32m(9 weeks ago) [1;34m<eoghan2t9>[m
+ [31m5d69a15[m -[33m[m Linux 3.10.101 [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31mc9cbd78[m -[33m[m Revert: "crypto: af_alg - Disallow bind/setkey/... after accept(2)" [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31m6e9aff0[m -[33m[m modules: fix longstanding /proc/kallsyms vs module insertion race. [32m(9 weeks ago) [1;34m<Rusty Russell>[m
+ [31m53d4c17[m -[33m[m lib/ucs2_string: Correct ucs2 -> utf8 conversion [32m(9 weeks ago) [1;34m<Jason Andryuk>[m
+ [31m74dfcc8[m -[33m[m efi: Add pstore variables to the deletion whitelist [32m(9 weeks ago) [1;34m<Matt Fleming>[m
+ [31m036d899[m -[33m[m efi: Make efivarfs entries immutable by default [32m(9 weeks ago) [1;34m<Peter Jones>[m
+ [31m357f7e0[m -[33m[m efi: Make our variable validation list include the guid [32m(9 weeks ago) [1;34m<Peter Jones>[m
+ [31m9edafc7[m -[33m[m efi: Do variable name validation tests in utf8 [32m(9 weeks ago) [1;34m<Peter Jones>[m
+ [31mbc2a9a9[m -[33m[m efi: Use ucs2_as_utf8 in efivarfs instead of open coding a bad version [32m(9 weeks ago) [1;34m<Peter Jones>[m
+ [31m6c44898[m -[33m[m lib/ucs2_string: Add ucs2 -> utf8 helper functions [32m(9 weeks ago) [1;34m<Peter Jones>[m
+ [31mb984681[m -[33m[m KVM: x86: move steal time initialization to vcpu entry time [32m(9 weeks ago) [1;34m<Marcelo Tosatti>[m
+ [31m6998fc0[m -[33m[m powerpc: Fix dedotify for binutils >= 2.26 [32m(9 weeks ago) [1;34m<Andreas Schwab>[m
+ [31mafd220b[m -[33m[m mac80211: minstrel_ht: set default tx aggregation timeout to 0 [32m(9 weeks ago) [1;34m<Felix Fietkau>[m
+ [31mfb3991a[m -[33m[m mac80211: fix use of uninitialised values in RX aggregation [32m(9 weeks ago) [1;34m<Chris Bainbridge>[m
+ [31meb595c9[m -[33m[m wext: fix message delay/ordering [32m(9 weeks ago) [1;34m<Johannes Berg>[m
+ [31m3832ae7[m -[33m[m ASoC: wm8958: Fix enum ctl accesses in a wrong type [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m19311d7[m -[33m[m ASoC: wm8994: Fix enum ctl accesses in a wrong type [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31md771403[m -[33m[m tracing: Fix check for cpu online when event is disabled [32m(9 weeks ago) [1;34m<Steven Rostedt (Red Hat)>[m
+ [31mac886cb[m -[33m[m KVM: VMX: disable PEBS before a guest entry [32m(9 weeks ago) [1;34m<Radim Krčmář>[m
+ [31mf0add54[m -[33m[m fix selinux [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31m4b8c197[m -[33m[m apply patch from upstream. [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31m911bd5a[m -[33m[m Add smartassH3 cpu governor [32m(9 weeks ago) [1;34m<friedrich420>[m
+ [31m90db845[m -[33m[m moorefield: defconfig: Disable Intel's scheduler changes [32m(9 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31m8bf44ae[m -[33m[m moorefield: defconfig: Disable DEBUG_SPINLOCK [32m(9 weeks ago) [1;34m<Christopher R. Palmer>[m
+ [31m7b4916c[m -[33m[m Linux 3.10.100 [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31m3c58ddd[m -[33m[m Revert "drm/radeon: hold reference to fences in radeon_sa_bo_new" [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31m7aefb4c[m -[33m[m ubi: Fix out of bounds write in volume update code [32m(9 weeks ago) [1;34m<Richard Weinberger>[m
+ [31md23e367[m -[33m[m USB: serial: option: add support for Quectel UC20 [32m(9 weeks ago) [1;34m<Yegor Yefremov>[m
+ [31m6304aee[m -[33m[m USB: serial: option: add support for Telit LE922 PID 0x1045 [32m(9 weeks ago) [1;34m<Daniele Palmas>[m
+ [31m9e1a8ee[m -[33m[m USB: cp210x: Add ID for Parrot NMEA GPS Flight Recorder [32m(9 weeks ago) [1;34m<Vittorio Alfieri>[m
+ [31mf32089a[m -[33m[m ALSA: timer: Fix broken compat timer user status ioctl [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m4cdd734[m -[33m[m ALSA: hdspm: Fix zero-division [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m3d88941[m -[33m[m ALSA: hdsp: Fix wrong boolean ctl value accesses [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31ma680a25[m -[33m[m ALSA: hdspm: Fix wrong boolean ctl value accesses [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m8346a49[m -[33m[m ALSA: seq: oss: Don't drain at closing a client [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m10c1801[m -[33m[m ALSA: timer: Fix ioctls for X32 ABI [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m99d1971[m -[33m[m ALSA: rawmidi: Fix ioctls X32 ABI [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31mfa7c0aa[m -[33m[m ALSA: ctl: Fix ioctls for X32 ABI [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31mbbca4e9[m -[33m[m Fix directory hardlinks from deleted directories [32m(9 weeks ago) [1;34m<David Woodhouse>[m
+ [31m79f8cbc[m -[33m[m jffs2: Fix page lock / f->sem deadlock [32m(9 weeks ago) [1;34m<David Woodhouse>[m
+ [31m6d39758[m -[33m[m Revert "jffs2: Fix lock acquisition order bug in jffs2_write_begin" [32m(9 weeks ago) [1;34m<Thomas Betker>[m
+ [31m5afb052[m -[33m[m PM / sleep / x86: Fix crash on graph trace through x86 suspend [32m(9 weeks ago) [1;34m<Todd E Brandt>[m
+ [31mab18f90[m -[33m[m libata: Align ata_device's id on a cacheline [32m(9 weeks ago) [1;34m<Harvey Hunt>[m
+ [31mdabfbbe[m -[33m[m libata: fix HDIO_GET_32BIT ioctl [32m(9 weeks ago) [1;34m<Arnd Bergmann>[m
+ [31mdc9cfa9[m -[33m[m drm/ast: Fix incorrect register check for DRAM width [32m(9 weeks ago) [1;34m<Timothy Pearson>[m
+ [31m48d9b55[m -[33m[m x86/entry/compat: Add missing CLAC to entry_INT80_32 [32m(9 weeks ago) [1;34m<Andy Lutomirski>[m
+ [31mb8fc98b[m -[33m[m CIFS: Fix SMB2+ interim response processing for read requests [32m(9 weeks ago) [1;34m<Pavel Shilovsky>[m
+ [31m3b07e8d[m -[33m[m EDAC, mc_sysfs: Fix freeing bus' name [32m(9 weeks ago) [1;34m<Borislav Petkov>[m
+ [31me9ba7ef[m -[33m[m locks: fix unlock when fcntl_setlk races with a close [32m(9 weeks ago) [1;34m<Jeff Layton>[m
+ [31m92b8df0[m -[33m[m Match GCC with Git repo name [32m(9 weeks ago) [1;34m<eoghan2t9>[m
+ [31m77f8d43[m -[33m[m REGEN : nethunter defconfig enable more wifi cards and ethernet chips [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31m5827779[m -[33m[m REGEN : defconfig [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31mc11aefb[m -[33m[m add and fix qf9700 ethernet driver for kernel 3.10.x [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31m2aed698[m -[33m[m allow me to build nethunter kernel [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31mf478c44[m -[33m[m do not build p-state [32m(9 weeks ago) [1;34m<sayeed99>[m
+ [31md540cae[m -[33m[m Revert latest Asus stock kernel charger changes [32m(9 weeks ago) [1;34m<Jason Riordan>[m
+ [31m2fde54d[m -[33m[m Re-add the V :) [32m(9 weeks ago) [1;34m<Eoghan Cunningham>[m
+ [31m6259f8c[m -[33m[m Fix last few cherry-picks [32m(9 weeks ago) [1;34m<eoghan2t9>[m
+ [31m2204b1b[m -[33m[m Linux 3.10.99 [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31m6012f11[m -[33m[m xen/pcifront: Fix mysterious crashes when NUMA locality information was extracted. [32m(9 weeks ago) [1;34m<Konrad Rzeszutek Wilk>[m
+ [31mca01dac[m -[33m[m do_last(): don't let a bogus return value from ->open() et.al. to confuse us [32m(9 weeks ago) [1;34m<Al Viro>[m
+ [31m9808963[m -[33m[m kernel/resource.c: fix muxed resource handling in __request_region() [32m(9 weeks ago) [1;34m<Simon Guinot>[m
+ [31mee7e1cd[m -[33m[m sunrpc/cache: fix off-by-one in qword_get() [32m(9 weeks ago) [1;34m<Stefan Hajnoczi>[m
+ [31m357496f[m -[33m[m tracing: Fix showing function event in available_events [32m(9 weeks ago) [1;34m<Steven Rostedt (Red Hat)>[m
+ [31mb55ab0c[m -[33m[m KVM: async_pf: do not warn on page allocation failures [32m(9 weeks ago) [1;34m<Christian Borntraeger>[m
+ [31m1a2fb60[m -[33m[m nfs: fix nfs_size_to_loff_t [32m(9 weeks ago) [1;34m<Christoph Hellwig>[m
+ [31m532d66a[m -[33m[m PCI/AER: Flush workqueue on device remove to avoid use-after-free [32m(9 weeks ago) [1;34m<Sebastian Andrzej Siewior>[m
+ [31mab4c510[m -[33m[m libata: fix sff host state machine locking while polling [32m(9 weeks ago) [1;34m<Tejun Heo>[m
+ [31m9b19248[m -[33m[m Revert "workqueue: make sure delayed work run in local cpu" [32m(9 weeks ago) [1;34m<Tejun Heo>[m
+ [31me8d173b[m -[33m[m rfkill: fix rfkill_fop_read wait_event usage [32m(9 weeks ago) [1;34m<Johannes Berg>[m
+ [31m60e65a1[m -[33m[m cdc-acm:exclude Samsung phone 04e8:685d [32m(9 weeks ago) [1;34m<Oliver Neukum>[m
+ [31mcc463df[m -[33m[m libceph: don't bail early from try_read() when skipping a message [32m(9 weeks ago) [1;34m<Ilya Dryomov>[m
+ [31mbfa66a5[m -[33m[m IB/qib: fix mcast detach when qp not attached [32m(9 weeks ago) [1;34m<Mike Marciniszyn>[m
+ [31mf415145[m -[33m[m drm/radeon: use post-decrement in error handling [32m(9 weeks ago) [1;34m<Rasmus Villemoes>[m
+ [31ma5ae070[m -[33m[m drm/radeon: hold reference to fences in radeon_sa_bo_new [32m(9 weeks ago) [1;34m<Nicolai Hähnle>[m
+ [31m267fb64[m -[33m[m drm/radeon: clean up fujitsu quirks [32m(9 weeks ago) [1;34m<Alex Deucher>[m
+ [31m4217fe3[m -[33m[m drm/vmwgfx: respect 'nomodeset' [32m(9 weeks ago) [1;34m<Rob Clark>[m
+ [31mf4daeb0[m -[33m[m sparc64: fix incorrect sign extension in sys_sparc64_personality [32m(9 weeks ago) [1;34m<Dmitry V. Levin>[m
+ [31md6ff297[m -[33m[m mmc: mmci: fix an ages old detection error [32m(9 weeks ago) [1;34m<Linus Walleij>[m
+ [31m7ce7b1f[m -[33m[m posix-clock: Fix return code on the poll method's error path [32m(9 weeks ago) [1;34m<Richard Cochran>[m
+ [31m8d4bc67[m -[33m[m dm snapshot: fix hung bios when copy error occurs [32m(9 weeks ago) [1;34m<Mikulas Patocka>[m
+ [31m611f39a[m -[33m[m tda1004x: only update the frontend properties if locked [32m(9 weeks ago) [1;34m<Mauro Carvalho Chehab>[m
+ [31mcbf6c3b[m -[33m[m gspca: ov534/topro: prevent a division by 0 [32m(9 weeks ago) [1;34m<Antonio Ospite>[m
+ [31meb46f98[m -[33m[m media: dvb-core: Don't force CAN_INVERSION_AUTO in oneshot mode [32m(9 weeks ago) [1;34m<Malcolm Priestley>[m
+ [31ma137966[m -[33m[m uml: fix hostfs mknod() [32m(9 weeks ago) [1;34m<Vegard Nossum>[m
+ [31m9b85cc5[m -[33m[m uml: flush stdout before forking [32m(9 weeks ago) [1;34m<Vegard Nossum>[m
+ [31mf5836e4[m -[33m[m s390/dasd: fix refcount for PAV reassignment [32m(9 weeks ago) [1;34m<Stefan Haberland>[m
+ [31md403404[m -[33m[m s390/dasd: prevent incorrect length error under z/VM after PAV changes [32m(9 weeks ago) [1;34m<Stefan Haberland>[m
+ [31m342f24f[m -[33m[m s390: fix normalization bug in exception table sorting [32m(9 weeks ago) [1;34m<Ard Biesheuvel>[m
+ [31mc4c01a4[m -[33m[m Btrfs: fix number of transaction units required to create symlink [32m(9 weeks ago) [1;34m<Filipe Manana>[m
+ [31m8596f02[m -[33m[m Btrfs: send, don't BUG_ON() when an empty symlink is found [32m(9 weeks ago) [1;34m<Filipe Manana>[m
+ [31m7e68de6[m -[33m[m Btrfs: igrab inode in writepage [32m(9 weeks ago) [1;34m<Josef Bacik>[m
+ [31m09ac8bd[m -[33m[m Btrfs: add missing brelse when superblock checksum fails [32m(9 weeks ago) [1;34m<Anand Jain>[m
+ [31ma97f69a[m -[33m[m scripts: recordmcount: break hardlinks [32m(9 weeks ago) [1;34m<Russell King>[m
+ [31m4ec53be[m -[33m[m ses: fix additional element traversal bug [32m(9 weeks ago) [1;34m<James Bottomley>[m
+ [31m46dc823[m -[33m[m ses: Fix problems with simple enclosures [32m(9 weeks ago) [1;34m<James Bottomley>[m
+ [31m307f0e7[m -[33m[m rfkill: copy the name into the rfkill struct [32m(9 weeks ago) [1;34m<Johannes Berg>[m
+ [31mc8cd5e4[m -[33m[m vgaarb: fix signal handling in vga_get() [32m(9 weeks ago) [1;34m<Kirill A. Shutemov>[m
+ [31md9d664b[m -[33m[m dm btree: fix bufio buffer leaks in dm_btree_del() error path [32m(9 weeks ago) [1;34m<Joe Thornber>[m
+ [31mbda7436[m -[33m[m sata_sil: disable trim [32m(9 weeks ago) [1;34m<Mikulas Patocka>[m
+ [31m620456b[m -[33m[m sched/core: Remove false-positive warning from wake_up_process() [32m(9 weeks ago) [1;34m<Sasha Levin>[m
+ [31m969b97d[m -[33m[m can: sja1000: clear interrupts on start [32m(9 weeks ago) [1;34m<Mirza Krak>[m
+ [31m3051b52[m -[33m[m RDS: fix race condition when sending a message on unbound socket [32m(9 weeks ago) [1;34m<Quentin Casasnovas>[m
+ [31m13a6d17[m -[33m[m mac80211: mesh: fix call_rcu() usage [32m(9 weeks ago) [1;34m<Johannes Berg>[m
+ [31m9c5084e[m -[33m[m virtio: fix memory leak of virtio ida cache layers [32m(9 weeks ago) [1;34m<Suman Anna>[m
+ [31m95dd6bd[m -[33m[m ring-buffer: Update read stamp with first real commit on page [32m(9 weeks ago) [1;34m<Steven Rostedt (Red Hat)>[m
+ [31m6d5cbef[m -[33m[m vfs: Avoid softlockups with sendfile(2) [32m(9 weeks ago) [1;34m<Jan Kara>[m
+ [31md87ddbf[m -[33m[m ARC: dw2 unwind: Remove falllback linear search thru FDE entries [32m(9 weeks ago) [1;34m<Vineet Gupta>[m
+ [31mb1fcca0[m -[33m[m mac: validate mac_partition is within sector [32m(9 weeks ago) [1;34m<Kees Cook>[m
+ [31m6fea174[m -[33m[m mmc: remove bondage between REQ_META and reliable write [32m(9 weeks ago) [1;34m<Luca Porzio>[m
+ [31m81e091f[m -[33m[m megaraid_sas : SMAP restriction--do not access user memory from IOCTL code [32m(9 weeks ago) [1;34m<sumit.saxena@avagotech.com>[m
+ [31mba52978[m -[33m[m megaraid_sas: Do not use PAGE_SIZE for max_sectors [32m(9 weeks ago) [1;34m<sumit.saxena@avagotech.com>[m
+ [31m042ebf8[m -[33m[m wm831x_power: Use IRQF_ONESHOT to request threaded IRQs [32m(9 weeks ago) [1;34m<Valentin Rothberg>[m
+ [31m49deabb[m -[33m[m devres: fix a for loop bounds check [32m(9 weeks ago) [1;34m<Dan Carpenter>[m
+ [31m8bfd468[m -[33m[m lockd: create NSM handles per net namespace [32m(9 weeks ago) [1;34m<Andrey Ryabinin>[m
+ [31m7accd1d[m -[33m[m clocksource/drivers/vt8500: Increase the minimum delta [32m(9 weeks ago) [1;34m<Roman Volkov>[m
+ [31mde2a51d[m -[33m[m genirq: Prevent chip buslock deadlock [32m(9 weeks ago) [1;34m<Thomas Gleixner>[m
+ [31m334c5af[m -[33m[m unix: correctly track in-flight fds in sending process user_struct [32m(9 weeks ago) [1;34m<Hannes Frederic Sowa>[m
+ [31m2321673[m -[33m[m Failing to send a CLOSE if file is opened WRONLY and server reboots on a 4.x mount [32m(9 weeks ago) [1;34m<Olga Kornievskaia>[m
+ [31mc6a14ae[m -[33m[m splice: sendfile() at once fails for big files [32m(9 weeks ago) [1;34m<Christophe Leroy>[m
+ [31m685c1d2[m -[33m[m MIPS: KVM: Uninit VCPU in vcpu_create error path [32m(9 weeks ago) [1;34m<James Hogan>[m
+ [31m1cbec6f[m -[33m[m MIPS: KVM: Fix CACHE immediate offset sign extension [32m(9 weeks ago) [1;34m<James Hogan>[m
+ [31m6c74d27[m -[33m[m MIPS: KVM: Fix ASID restoration logic [32m(9 weeks ago) [1;34m<James Hogan>[m
+ [31mbec1f4b[m -[33m[m iw_cxgb3: Fix incorrectly returning error on success [32m(9 weeks ago) [1;34m<Hariprasad S>[m
+ [31mb1fb668[m -[33m[m proc: Fix ptrace-based permission checks for accessing task maps [32m(9 weeks ago) [1;34m<Corey Wright>[m
+ [31m0b48d2e[m -[33m[m USB: option: add "4G LTE usb-modem U901" [32m(9 weeks ago) [1;34m<Bjørn Mork>[m
+ [31m5ae5ca5[m -[33m[m USB: option: add support for SIM7100E [32m(9 weeks ago) [1;34m<Andrey Skvortsov>[m
+ [31mbf42b75[m -[33m[m USB: cp210x: add IDs for GE B650V3 and B850V3 boards [32m(9 weeks ago) [1;34m<Ken Lin>[m
+ [31mbec9b41[m -[33m[m can: ems_usb: Fix possible tx overflow [32m(9 weeks ago) [1;34m<Gerhard Uttenthaler>[m
+ [31m9abd806[m -[33m[m dm thin: fix race condition when destroying thin pool workqueue [32m(9 weeks ago) [1;34m<Nikolay Borisov>[m
+ [31m10ea806[m -[33m[m dm thin metadata: fix bug when taking a metadata snapshot [32m(9 weeks ago) [1;34m<Joe Thornber>[m
+ [31mad74442[m -[33m[m efi: Disable interrupts around EFI calls, not in the epilog/prolog calls [32m(9 weeks ago) [1;34m<Ingo Molnar>[m
+ [31m45e51d2[m -[33m[m drm/radeon: fix hotplug race at startup [32m(9 weeks ago) [1;34m<Dave Airlie>[m
+ [31m305a919[m -[33m[m tools: Add a "make all" rule [32m(9 weeks ago) [1;34m<Kamal Mostafa>[m
+ [31mddf4981[m -[33m[m bcache: unregister reboot notifier if bcache fails to unregister device [32m(9 weeks ago) [1;34m<Zheng Liu>[m
+ [31m6885b1b[m -[33m[m netfilter: nf_conntrack: fix RCU race in nf_conntrack_find_get [32m(9 weeks ago) [1;34m<Andrey Vagin>[m
+ [31m12d2dfc[m -[33m[m drm/ast: Initialized data needed to map fbdev memory [32m(9 weeks ago) [1;34m<Egbert Eich>[m
+ [31maedde58[m -[33m[m tracepoints: Do not trace when cpu is offline [32m(9 weeks ago) [1;34m<Steven Rostedt (Red Hat)>[m
+ [31mbcba567[m -[33m[m Linux 3.10.98 [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31mc2c421a[m -[33m[m module: wrapper for symbol name. [32m(9 weeks ago) [1;34m<Rusty Russell>[m
+ [31md0ad22c[m -[33m[m ip6mr: call del_timer_sync() in ip6mr_free_table() [32m(9 weeks ago) [1;34m<WANG Cong>[m
+ [31m925f29f[m -[33m[m futex: Drop refcount if requeue_pi() acquired the rtmutex [32m(9 weeks ago) [1;34m<Thomas Gleixner>[m
+ [31m40168e7[m -[33m[m x86/asm/irq: Stop relying on magic JMP behavior for early_idt_handlers [32m(9 weeks ago) [1;34m<Andy Lutomirski>[m
+ [31mcaf5a77[m -[33m[m intel_scu_ipcutil: underflow in scu_reg_access() [32m(9 weeks ago) [1;34m<Dan Carpenter>[m
+ [31m38c29cc[m -[33m[m radix-tree: fix oops after radix_tree_iter_retry [32m(9 weeks ago) [1;34m<Konstantin Khlebnikov>[m
+ [31m8d0f45d[m -[33m[m radix-tree: fix race in gang lookup [32m(9 weeks ago) [1;34m<Matthew Wilcox>[m
+ [31meef811a[m -[33m[m memcg: only free spare array when readers are done [32m(9 weeks ago) [1;34m<Martijn Coenen>[m
+ [31mee5df89[m -[33m[m scripts/bloat-o-meter: fix python3 syntax error [32m(9 weeks ago) [1;34m<Sergey Senozhatsky>[m
+ [31me32e52d[m -[33m[m dma-debug: switch check from _text to _stext [32m(9 weeks ago) [1;34m<Laura Abbott>[m
+ [31m6a3797c[m -[33m[m m32r: fix m32104ut_defconfig build fail [32m(9 weeks ago) [1;34m<Sudip Mukherjee>[m
+ [31mfc0b893[m -[33m[m xhci: Fix list corruption in urb dequeue at host removal [32m(9 weeks ago) [1;34m<Mathias Nyman>[m
+ [31m28690e0[m -[33m[m mm/memory_hotplug.c: check for missing sections in test_pages_in_a_zone() [32m(9 weeks ago) [1;34m<Andrew Banman>[m
+ [31md4cf1ef[m -[33m[m iommu/vt-d: Fix 64-bit accesses to 32-bit DMAR_GSTS_REG [32m(9 weeks ago) [1;34m<CQ Tang>[m
+ [31m28e8df7[m -[33m[m Input: i8042 - add Fujitsu Lifebook U745 to the nomux list [32m(9 weeks ago) [1;34m<Aurélien Francillon>[m
+ [31m541b4fd[m -[33m[m Input: elantech - mark protocols v2 and v3 as semi-mt [32m(9 weeks ago) [1;34m<Benjamin Tissoires>[m
+ [31m1805fd4[m -[33m[m Input: elantech - add Fujitsu Lifebook U745 to force crc_enabled [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31mcb2ee59[m -[33m[m mm: soft-offline: check return value in second __get_any_page() call [32m(9 weeks ago) [1;34m<Naoya Horiguchi>[m
+ [31mbc72278[m -[33m[m fuse: break infinite loop in fuse_fill_write_pages() [32m(9 weeks ago) [1;34m<Roman Gushchin>[m
+ [31m8580c9c[m -[33m[m ARM: 8517/1: ICST: avoid arithmetic overflow in icst_hz() [32m(9 weeks ago) [1;34m<Linus Walleij>[m
+ [31mdb66527[m -[33m[m ARM: 8519/1: ICST: try other dividends than 1 [32m(9 weeks ago) [1;34m<Linus Walleij>[m
+ [31m73bc1c6[m -[33m[m udf: Check output buffer length when converting name to CS0 [32m(9 weeks ago) [1;34m<Andrew Gabbasov>[m
+ [31md823a6c[m -[33m[m udf: Prevent buffer overrun with multi-byte characters [32m(9 weeks ago) [1;34m<Andrew Gabbasov>[m
+ [31m8cb988f[m -[33m[m udf: limit the maximum number of indirect extents in a row [32m(9 weeks ago) [1;34m<Vegard Nossum>[m
+ [31m6cc271e[m -[33m[m nfs: Fix race in __update_open_stateid() [32m(9 weeks ago) [1;34m<Andrew Elble>[m
+ [31m6cbf978[m -[33m[m cifs: fix erroneous return value [32m(9 weeks ago) [1;34m<Anton Protopopov>[m
+ [31m89200e1[m -[33m[m iio: dac: mcp4725: set iio name property in sysfs [32m(9 weeks ago) [1;34m<Yong Li>[m
+ [31m6466510[m -[33m[m iio: adis_buffer: Fix out-of-bounds memory access [32m(9 weeks ago) [1;34m<Lars-Peter Clausen>[m
+ [31m1391566[m -[33m[m iio:ad5064: Make sure ad5064_i2c_write() returns 0 on success [32m(9 weeks ago) [1;34m<Michael Hennerich>[m
+ [31md2402c1[m -[33m[m iio: lpc32xx_adc: fix warnings caused by enabling unprepared clock [32m(9 weeks ago) [1;34m<Vladimir Zapolskiy>[m
+ [31m65665e2[m -[33m[m iio:ad7793: Fix ad7785 product ID [32m(9 weeks ago) [1;34m<Lars-Peter Clausen>[m
+ [31mec567d7[m -[33m[m scsi: fix soft lockup in scsi_remove_target() on module removal [32m(9 weeks ago) [1;34m<James Bottomley>[m
+ [31me6cefbe[m -[33m[m scsi_dh_rdac: always retry MODE SELECT on command lock violation [32m(9 weeks ago) [1;34m<Hannes Reinecke>[m
+ [31m20efc83[m -[33m[m drivers/scsi/sg.c: mark VMA as VM_IO to prevent migration [32m(9 weeks ago) [1;34m<Kirill A. Shutemov>[m
+ [31me6fad68[m -[33m[m SCSI: fix crashes in sd and sr runtime PM [32m(9 weeks ago) [1;34m<Alan Stern>[m
+ [31m92c73cc[m -[33m[m iscsi-target: Fix potential dead-lock during node acl delete [32m(9 weeks ago) [1;34m<Nicholas Bellinger>[m
+ [31m4ebb9d2[m -[33m[m SCSI: Fix NULL pointer dereference in runtime PM [32m(9 weeks ago) [1;34m<Ken Xue>[m
+ [31m5057dca[m -[33m[m Fix a memory leak in scsi_host_dev_release() [32m(9 weeks ago) [1;34m<Bart Van Assche>[m
+ [31mc11af4f[m -[33m[m iscsi-target: Fix rx_login_comp hang after login failure [32m(9 weeks ago) [1;34m<Nicholas Bellinger>[m
+ [31ma479402[m -[33m[m scsi_sysfs: Fix queue_ramp_up_period return code [32m(9 weeks ago) [1;34m<Peter Oberparleiter>[m
+ [31m8c3b2e4[m -[33m[m scsi: restart list search after unlock in scsi_remove_target [32m(9 weeks ago) [1;34m<Christoph Hellwig>[m
+ [31m70d00ac[m -[33m[m klist: fix starting point removed bug in klist iterators [32m(9 weeks ago) [1;34m<James Bottomley>[m
+ [31mcd864ae[m -[33m[m tracing: Fix freak link error caused by branch tracer [32m(9 weeks ago) [1;34m<Arnd Bergmann>[m
+ [31m0c154bd[m -[33m[m tools lib traceevent: Fix output of %llu for 64 bit values read on 32 bit machines [32m(9 weeks ago) [1;34m<Steven Rostedt>[m
+ [31m65ed0c9[m -[33m[m ptrace: use fsuid, fsgid, effective creds for fs access checks [32m(9 weeks ago) [1;34m<Jann Horn>[m
+ [31mb323f66[m -[33m[m perf: Fix inherited events vs. tracepoint filters [32m(9 weeks ago) [1;34m<Peter Zijlstra>[m
+ [31madc7e2e[m -[33m[m Btrfs: fix hang on extent buffer lock caused by the inode_paths ioctl [32m(9 weeks ago) [1;34m<Filipe Manana>[m
+ [31m7c73961[m -[33m[m ext4: fix potential integer overflow [32m(9 weeks ago) [1;34m<Insu Yun>[m
+ [31m876a4be[m -[33m[m AIO: properly check iovec sizes [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31m61915f3[m -[33m[m pty: make sure super_block is still valid in final /dev/tty close [32m(9 weeks ago) [1;34m<Herton R. Krzesinski>[m
+ [31m0231121[m -[33m[m pty: fix possible use after free of tty->driver_data [32m(9 weeks ago) [1;34m<Herton R. Krzesinski>[m
+ [31m10f76f3[m -[33m[m staging/speakup: Use tty_ldisc_ref() for paste kworker [32m(9 weeks ago) [1;34m<Peter Hurley>[m
+ [31mdfe1c97[m -[33m[m wan/x25: Fix use-after-free in x25_asy_open_tty() [32m(9 weeks ago) [1;34m<Peter Hurley>[m
+ [31m56879fb[m -[33m[m ALSA: seq: Fix double port list deletion [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31md129dc6[m -[33m[m Linux 3.10.97 [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31md2a1259[m -[33m[m binfmt_elf: Don't clobber passed executable's file header [32m(9 weeks ago) [1;34m<Maciej W. Rozycki>[m
+ [31me5cfc0c[m -[33m[m FS-Cache: Increase reference of parent after registering, netfs success [32m(9 weeks ago) [1;34m<Kinglong Mee>[m
+ [31m5d2e368[m -[33m[m crypto: user - lock crypto_alg_list on alg dump [32m(9 weeks ago) [1;34m<Mathias Krause>[m
+ [31m26a1c17[m -[33m[m crypto: algif_hash - wait for crypto_ahash_init() to complete [32m(9 weeks ago) [1;34m<Wang, Rui Y>[m
+ [31m03b731a[m -[33m[m ahci: Intel DNV device IDs SATA [32m(9 weeks ago) [1;34m<Alexandra Yates>[m
+ [31m392f94b[m -[33m[m libata: disable forced PORTS_IMPL for >= AHCI 1.3 [32m(9 weeks ago) [1;34m<Tejun Heo>[m
+ [31m6a645fe[m -[33m[m AHCI: Fix softreset failed issue of Port Multiplier [32m(9 weeks ago) [1;34m<Xiangliang Yu>[m
+ [31m0f5d30d[m -[33m[m crypto: af_alg - Fix socket double-free when accept fails [32m(9 weeks ago) [1;34m<Herbert Xu>[m
+ [31m8978a06[m -[33m[m crypto: af_alg - Disallow bind/setkey/... after accept(2) [32m(9 weeks ago) [1;34m<Herbert Xu>[m
+ [31m2d4be16[m -[33m[m ext4: Fix handling of extended tv_sec [32m(9 weeks ago) [1;34m<David Turner>[m
+ [31mde81ea4[m -[33m[m tty: Fix unsafe ldisc reference via ioctl(TIOCGETD) [32m(9 weeks ago) [1;34m<Peter Hurley>[m
+ [31m4923e4b[m -[33m[m USB: option: fix Cinterion AHxx enumeration [32m(9 weeks ago) [1;34m<John Ernberg>[m
+ [31m63f739c[m -[33m[m USB: serial: option: Adding support for Telit LE922 [32m(9 weeks ago) [1;34m<Daniele Palmas>[m
+ [31m08dd181[m -[33m[m USB: cp210x: add ID for IAI USB to RS485 adaptor [32m(9 weeks ago) [1;34m<Peter Dedecker>[m
+ [31m06e6cdc[m -[33m[m USB: serial: ftdi_sio: add support for Yaesu SCU-18 cable [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31mec0049b[m -[33m[m USB: visor: fix null-deref at probe [32m(9 weeks ago) [1;34m<Johan Hovold>[m
+ [31m279604d[m -[33m[m USB: serial: visor: fix crash on detecting device without write_urbs [32m(9 weeks ago) [1;34m<Vladis Dronov>[m
+ [31m9b813ad[m -[33m[m USB: ti_usb_3410_502: Fix ID table size [32m(9 weeks ago) [1;34m<Ben Hutchings>[m
+ [31mccad0a7[m -[33m[m saa7134-alsa: Only frees registered sound cards [32m(9 weeks ago) [1;34m<Mauro Carvalho Chehab>[m
+ [31ma2b2007[m -[33m[m ALSA: timer: Fix race between stop and interrupt [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m2b7be47[m -[33m[m ALSA: dummy: Implement timer backend switching more safely [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31me2d02a2[m -[33m[m ALSA: hda - Fix speaker output from VAIO AiO machines [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31me43fcfe[m -[33m[m ALSA: timer: Fix wrong instance passed to slave callbacks [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m99d72c6[m -[33m[m ALSA: timer: Fix link corruption due to double start or stop [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31mf4bcd26[m -[33m[m ALSA: timer: Fix leftover link at closing [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31mc86bae2[m -[33m[m ALSA: timer: Code cleanup [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m742525a[m -[33m[m ALSA: seq: Fix lockdep warnings due to double mutex locks [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m27e00cb[m -[33m[m ALSA: seq: Fix race at closing in virmidi driver [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m1b51f45[m -[33m[m ALSA: seq: Fix yet another races among ALSA timer accesses [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m84ad152[m -[33m[m ASoC: dpcm: fix the BE state on hw_free [32m(9 weeks ago) [1;34m<Vinod Koul>[m
+ [31m0296479[m -[33m[m ALSA: pcm: Fix potential deadlock in OSS emulation [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m9e24678[m -[33m[m ALSA: rawmidi: Fix race at copying & updating the position [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m9db3b7e[m -[33m[m ALSA: rawmidi: Remove kernel WARNING for NULL user-space buffer check [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31ma26a22b[m -[33m[m ALSA: seq: Fix incorrect sanity check at snd_seq_oss_synth_cleanup() [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31mb719491[m -[33m[m ALSA: dummy: Disable switching timer backend via sysfs [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m5c5191a[m -[33m[m ALSA: compress: Disable GET_CODEC_CAPS ioctl for some architectures [32m(9 weeks ago) [1;34m<Takashi Iwai>[m
+ [31m7cc03c0[m -[33m[m ALSA: usb-audio: avoid freeing umidi object twice [32m(9 weeks ago) [1;34m<Andrey Konovalov>[m
+ [31md91feec[m -[33m[m ALSA: usb-audio: Fix TEAC UD-501/UD-503/NT-503 usb delay [32m(9 weeks ago) [1;34m<Guillaume Fougnies>[m
+ [31m3f2d6b6[m -[33m[m fix sysvfs symlinks [32m(9 weeks ago) [1;34m<Al Viro>[m
+ [31m59d8fac[m -[33m[m media: vb2 dma-contig: Fully cache synchronise buffers in prepare and finish [32m(9 weeks ago) [1;34m<Tiffany Lin>[m
+ [31m95a89b2[m -[33m[m v4l2-compat-ioctl32: fix alignment for ARM64 [32m(9 weeks ago) [1;34m<Andrzej Hajda>[m
+ [31ma01fe4a[m -[33m[m parisc: Fix __ARCH_SI_PREAMBLE_SIZE [32m(9 weeks ago) [1;34m<Helge Deller>[m
+ [31m45e2076[m -[33m[m parisc: Fix syscall restarts [32m(9 weeks ago) [1;34m<Helge Deller>[m
+ [31m9bd3053[m -[33m[m parisc: Drop unused MADV_xxxK_PAGES flags from asm/mman.h [32m(9 weeks ago) [1;34m<Helge Deller>[m
+ [31m61ebeb3[m -[33m[m fix calculation of meta_bg descriptor backups [32m(9 weeks ago) [1;34m<Andy Leiserson>[m
+ [31m6912ea7[m -[33m[m jbd2: Fix unreclaimed pages after truncate in data=journal mode [32m(9 weeks ago) [1;34m<Jan Kara>[m
+ [31m6869f9d[m -[33m[m mtd: mtdpart: fix add_mtd_partitions error path [32m(9 weeks ago) [1;34m<Boris BREZILLON>[m
+ [31m4ff9a1d[m -[33m[m vTPM: fix memory allocation flag for rtce buffer at kernel boot [32m(9 weeks ago) [1;34m<Hon Ching (Vicky) Lo>[m
+ [31ma4c9879[m -[33m[m wlcore/wl12xx: spi: fix NULL pointer dereference (Oops) [32m(9 weeks ago) [1;34m<Uri Mashiach>[m
+ [31m110686d[m -[33m[m wlcore/wl12xx: spi: fix oops on firmware load [32m(9 weeks ago) [1;34m<Uri Mashiach>[m
+ [31m6098499[m -[33m[m spi: fix parent-device reference leak [32m(9 weeks ago) [1;34m<Johan Hovold>[m
+ [31m8340416[m -[33m[m spi: atmel: Fix DMA-setup for transfers with more than 8 bits per word [32m(9 weeks ago) [1;34m<David Mosberger-Tang>[m
+ [31m999edf6[m -[33m[m Revert "dm mpath: fix stalls when handling invalid ioctls" [32m(9 weeks ago) [1;34m<Mauricio Faria de Oliveira>[m
+ [31m470724f[m -[33m[m sh64: fix __NR_fgetxattr [32m(9 weeks ago) [1;34m<Dmitry V. Levin>[m
+ [31mf9187bc[m -[33m[m ocfs2/dlm: clear refmap bit of recovery lock while doing local recovery cleanup [32m(9 weeks ago) [1;34m<xuejiufei>[m
+ [31mb07019c[m -[33m[m ocfs2/dlm: ignore cleaning the migration mle that is inuse [32m(9 weeks ago) [1;34m<xuejiufei>[m
+ [31m5018a14[m -[33m[m kernel/signal.c: unexport sigsuspend() [32m(9 weeks ago) [1;34m<Richard Weinberger>[m
+ [31m28b82cf[m -[33m[m remoteproc: avoid stack overflow in debugfs file [32m(9 weeks ago) [1;34m<Arnd Bergmann>[m
+ [31m4aee90d[m -[33m[m HID: usbhid: fix recursive deadlock [32m(9 weeks ago) [1;34m<Ioan-Adrian Ratiu>[m
+ [31m2acc65e[m -[33m[m dm btree: fix leak of bufio-backed block in btree_split_sibling error path [32m(9 weeks ago) [1;34m<Mike Snitzer>[m
+ [31m39f62d8[m -[33m[m crypto: algif_hash - Only export and import on sockets with data [32m(9 weeks ago) [1;34m<Herbert Xu>[m
+ [31m05fda63[m -[33m[m xhci: fix placement of call to usb_disabled() [32m(9 weeks ago) [1;34m<Greg Kroah-Hartman>[m
+ [31medba2dc[m -[33m[m recordmcount: Fix endianness handling bug for nop_mcount [32m(9 weeks ago) [1;34m<libin>[m
+ [31m831b277[m -[33m[m Update f2fs to mainline [32m(9 weeks ago) [1;34m<eoghan2t9>[m
+ [31m8e4c17c[m -[33m[m Regen defconfig [32m(10 weeks ago) [1;34m<eoghan2t9>[m
+ [31m4061f05[m -[33m[m More Compiler Flag Optimizations [32m(10 weeks ago) [1;34m<eoghan2t9>[m
+ [31m53fa44d[m -[33m[m moorefield: Allow out led blink rate to be configured [32m(2 months ago) [1;34m<Christopher R. Palmer>[m
+ [31ma21d336[m -[33m[m Revert "Update buildzf2" [32m(2 months ago) [1;34m<miradli>[m
+ [31mdda9a2d[m -[33m[m Revert "Update buildzf2" [32m(2 months ago) [1;34m<miradli>[m
+ [31m80c9a58[m -[33m[m Update buildzf2 [32m(2 months ago) [1;34m<miradli>[m
+ [31m495638f[m -[33m[m Update buildzf2 [32m(2 months ago) [1;34m<miradli>[m
+ [31m16f1bff[m -[33m[m defconfig for kali nethunter [32m(2 months ago) [1;34m<miradli>[m
+
