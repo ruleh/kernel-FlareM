@@ -83,7 +83,9 @@ int lock_policy_rwsem_##mode						\
 	down_##mode(&per_cpu(cpu_policy_rwsem, policy_cpu));		\
 									\
 	return 0;							\
-}
+}									\
+EXPORT_SYMBOL_GPL(lock_policy_rwsem_##mode);
+
 
 lock_policy_rwsem(read, cpu);
 
@@ -102,6 +104,7 @@ void unlock_policy_rwsem_write(int cpu)
 	BUG_ON(policy_cpu == -1);
 	up_write(&per_cpu(cpu_policy_rwsem, policy_cpu));
 }
+EXPORT_SYMBOL_GPL(unlock_policy_rwsem_write);
 
 /* internal prototypes */
 static int __cpufreq_governor(struct cpufreq_policy *policy,
@@ -144,6 +147,7 @@ bool have_governor_per_policy(void)
 {
 	return cpufreq_driver->have_governor_per_policy;
 }
+EXPORT_SYMBOL_GPL(have_governor_per_policy);
 
 static struct cpufreq_policy *__cpufreq_cpu_get(unsigned int cpu, bool sysfs)
 {

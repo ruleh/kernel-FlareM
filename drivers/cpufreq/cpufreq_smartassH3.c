@@ -33,6 +33,7 @@
 #include <linux/tick.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
+#include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <asm/cputime.h>
 #include <linux/earlysuspend.h>
@@ -968,6 +969,6 @@ static void __exit cpufreq_smartass_exit(void)
 
 module_exit(cpufreq_smartass_exit);
 
-/*MODULE_AUTHOR ("Erasmux, moded by H3ROS & C3C0");
-MODULE_DESCRIPTION ("'cpufreq_smartassH3' - A smart cpufreq governor");
-MODULE_LICENSE ("GPL");*/
+MODULE_AUTHOR("Erasmux, moded by H3ROS & C3C0");
+MODULE_DESCRIPTION("'cpufreq_smartassH3' - A smart cpufreq governor");
+MODULE_LICENSE("GPL");
