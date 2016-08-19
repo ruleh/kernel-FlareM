@@ -22,7 +22,7 @@
 #endif
 
 #define SYSTEM_SET_BRIGHTNESS 15
-static unsigned long min_brightness=2;
+static unsigned long min_brightness=0;
 
 static const char *const backlight_types[] = {
 	[BACKLIGHT_RAW] = "raw",
@@ -232,10 +232,10 @@ static ssize_t backlight_store_min_brightness(struct device *dev,
 
 	rc = -ENXIO;
 
-	if(m_brightness > 1 && m_brightness < 16)
+	if(m_brightness < 16)
 		min_brightness = m_brightness;
 	else
-		printk("Invalid min_brightness, please specify a value between 2 and 15\n");
+		printk("Invalid min_brightness, please specify a value less than 16\n");
 
 	return rc;
 }
