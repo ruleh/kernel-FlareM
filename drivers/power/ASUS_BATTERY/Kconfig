@@ -36,6 +36,15 @@ config SMB1357_CHARGER
 	  SMB1357 be operated as a slave device via the power supply
 	  framework.
 
+config NOT_INVALID
+	bool "charger is never invalid"
+	depends on SMB1357_CHARGER
+	help
+		Say Y to ignore invalid charger and charger suspend states.
+		This might damage the charging hardware when used with a
+		defective charger.
+		If unsure, say N.
+
 config A500CG_BATTERY_SMB347
 	tristate "SMB347 battery charger driver"
 	help

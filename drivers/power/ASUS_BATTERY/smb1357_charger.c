@@ -1165,8 +1165,13 @@ int smb1357_chr_suspend(void)
 	ret = smb1357_read(smb1357_dev, RESULT_STATUS_REG);
 	CHR_INFO("RESULT_STATUS_REG 0x47=0x%02x\n", ret);
 	if  ((ret >= 0)&&(ret&0x8)) {
+#ifdef CONFIG_NOT_INVALID
+		CHR_INFO("charger suspend happen! but we will ignore it for now\n");
+		return 0; // things break here
+#else
 		CHR_INFO("charger suspend happen!\n");
 		return 1;
+#endif
 	}else {
 		return 0;
 	}

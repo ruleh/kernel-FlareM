@@ -1236,7 +1236,7 @@ final:
 #ifdef CONFIG_LEDS_ASUS
 #ifdef CONFIG_SMB1357_CHARGER
 		if (invalid_charger) {
-			led_brightness_set(0, 0);
+			led_brightness_set(0, 1); // just in case things go wrong
 			led_brightness_set(1, 0);
 		} else if (status == POWER_SUPPLY_STATUS_FULL) {
 #else
@@ -1416,8 +1416,13 @@ void asus_update_all(void)
         asus_battery_get_info_no_mutex();
         // if the power source changes, all power supplies may change state 
 	if (smb1357_chr_suspend()&&(Read_PROJ_ID()!=PROJ_ID_ZX550ML)) {
+#ifdef CONFIG_NOT_INVALID
+		BAT_DBG("invalid charger!!! pretending it never happened...\n");
+		invalid_charger = 0; // things break here
+#else
 		BAT_DBG("invalid charger!!!\n");
 		invalid_charger = 1;
+#endif
 	} else {
 		invalid_charger = 0;
 	}
